@@ -1,23 +1,69 @@
+# ============================================================================
 # Python-generated files
+# ============================================================================
 __pycache__/
 *.py[oc]
+*.pyc
+*.pyo
+*.egg-info/
+*.egg
 build/
 dist/
+.eggs/
 wheels/
-*.egg-info
 
-# Virtual environments
-.venv
-worktrees/
-results/
-queue/
+# ============================================================================
+# Virtual environments & dependency management
+# ============================================================================
+.venv/
+venv/
+ENV/
+env/
 
-# Agent prompt files (generated per-session by launchers)
+# ============================================================================
+# Claude Code & development tools (session-specific)
+# ============================================================================
+.claude/
+SESSION_LOG.md
 CLAUDE.md
+AGENT.md
 AGENTS.md
+AGENT_BRIEFING.md
+PROJECT_STRUCTURE.md
+DRL_AUTORESEARCH_README.md
 
-# Experimental code/artifacts
-dev/
-
-# Results file
+# ============================================================================
+# Project-generated logs & state (not part of codebase)
+# ============================================================================
+logs/
+.drl_autoresearch/
+results/
 results.tsv
+queue/
+worktrees/
+run_logs/
+
+# ============================================================================
+# OS & editor artifacts
+# ============================================================================
+.DS_Store
+*.swp
+*.swo
+*~
+.idea/
+.vscode/settings.json
+.vscode/launch.json
+*.code-workspace
+
+# ============================================================================
+# Experimental code & temporary artifacts
+# ============================================================================
+dev/
+temp/
+tmp/
+*.tmp
+
+# ============================================================================
+# Git-related
+# ============================================================================
+.git/

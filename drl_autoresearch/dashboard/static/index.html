@@ -1,0 +1,934 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DRL AutoResearch Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    /* ── CSS Variables ──────────────────────────────────────────── */
+    :root {
+      --bg:         #0d1117;
+      --card-bg:    #161b22;
+      --border:     #30363d;
+      --text:       #e6edf3;
+      --text-muted: #8b949e;
+      --green:      #3fb950;
+      --red:        #f85149;
+      --yellow:     #d29922;
+      --blue:       #388bfd;
+      --purple:     #a5a5ff;
+      --radius:     8px;
+      --gap:        16px;
+    }
+
+    /* ── Reset ──────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+      font-size: 14px;
+      line-height: 1.5;
+      min-height: 100vh;
+    }
+
+    /* ── Layout helpers ─────────────────────────────────────────── */
+    .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--gap); }
+    .grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--gap); }
+    .grid-1 { display: grid; grid-template-columns: 1fr; gap: var(--gap); }
+    @media (max-width: 1100px) { .grid-4 { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 700px)  { .grid-4, .grid-2 { grid-template-columns: 1fr; } }
+
+    .main-wrap {
+      max-width: 1440px;
+      margin: 0 auto;
+      padding: var(--gap);
+      display: flex;
+      flex-direction: column;
+      gap: var(--gap);
+    }
+
+    /* ── Card ───────────────────────────────────────────────────── */
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px;
+      overflow: hidden;
+    }
+    .card-title {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+    }
+    .card-value {
+      font-size: 28px;
+      font-weight: 700;
+      color: var(--text);
+      line-height: 1.1;
+    }
+    .card-sub {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 4px;
+    }
+
+    /* ── Header ─────────────────────────────────────────────────── */
+    #header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 12px 20px;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .logo-icon {
+      width: 32px; height: 32px;
+      background: linear-gradient(135deg, var(--blue), var(--purple));
+      border-radius: 6px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 16px;
+    }
+    .logo-text { font-weight: 700; font-size: 16px; }
+    .logo-project { color: var(--text-muted); font-size: 13px; }
+
+    .header-center {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .phase-badge {
+      background: rgba(56, 139, 253, 0.15);
+      border: 1px solid rgba(56, 139, 253, 0.4);
+      color: var(--blue);
+      padding: 4px 12px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    /* LIVE pulsing dot */
+    .live-indicator {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 12px; font-weight: 600;
+    }
+    .live-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--green);
+      animation: pulse-dot 1.4s ease-in-out infinite;
+    }
+    .live-indicator.disconnected .live-dot {
+      background: var(--red);
+      animation: none;
+    }
+    .live-indicator.disconnected .live-label { color: var(--red); }
+    .live-label { color: var(--green); }
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50%       { opacity: 0.5; transform: scale(1.3); }
+    }
+
+    .header-right {
+      display: flex; flex-direction: column; align-items: flex-end;
+      font-size: 12px; color: var(--text-muted);
+    }
+    #last-updated { font-variant-numeric: tabular-nums; }
+
+    /* ── Stat cards ─────────────────────────────────────────────── */
+    .stat-card { }
+    .alert-count { color: var(--text); }
+    .alert-count.has-alerts { color: var(--red); }
+
+    /* ── Charts ─────────────────────────────────────────────────── */
+    .chart-container { position: relative; height: 220px; }
+
+    /* ── Table ──────────────────────────────────────────────────── */
+    .table-wrap { overflow-x: auto; }
+    table {
+      width: 100%; border-collapse: collapse;
+      font-size: 13px;
+    }
+    th {
+      text-align: left;
+      padding: 8px 12px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    td {
+      padding: 8px 12px;
+      border-bottom: 1px solid rgba(48,54,61,0.5);
+      vertical-align: middle;
+      max-width: 260px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    tr:last-child td { border-bottom: none; }
+    tr.row-keep   td:first-child { border-left: 3px solid var(--green); }
+    tr.row-discard td:first-child { border-left: 3px solid var(--red); }
+    tr.row-crash  td:first-child { border-left: 3px solid var(--yellow); }
+    tr.row-running td:first-child { border-left: 3px solid var(--blue); }
+    tr:hover td { background: rgba(255,255,255,0.02); }
+
+    /* ── Status badges ──────────────────────────────────────────── */
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .badge-keep    { background: rgba(63,185,80,0.15);  color: var(--green); }
+    .badge-discard { background: rgba(248,81,73,0.15);  color: var(--red); }
+    .badge-crash   { background: rgba(210,153,34,0.15); color: var(--yellow); }
+    .badge-running { background: rgba(56,139,253,0.15); color: var(--blue); }
+    .badge-pending { background: rgba(139,148,158,0.15);color: var(--text-muted); }
+
+    .badge-critical { background: rgba(248,81,73,0.2);  color: var(--red); }
+    .badge-high     { background: rgba(210,153,34,0.2); color: var(--yellow); }
+    .badge-medium   { background: rgba(165,165,255,0.15);color: var(--purple); }
+    .badge-low      { background: rgba(139,148,158,0.15);color: var(--text-muted); }
+
+    /* ── Top models & incidents panels ──────────────────────────── */
+    .rank-list { display: flex; flex-direction: column; gap: 8px; }
+    .rank-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px 10px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+    }
+    .rank-num {
+      font-size: 18px; font-weight: 700; color: var(--text-muted);
+      min-width: 22px; text-align: center;
+    }
+    .rank-num.gold   { color: #ffd700; }
+    .rank-num.silver { color: #c0c0c0; }
+    .rank-num.bronze { color: #cd7f32; }
+    .rank-body { flex: 1; overflow: hidden; }
+    .rank-id   { font-size: 12px; font-family: monospace; color: var(--blue); }
+    .rank-hyp  { font-size: 12px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .rank-metric { font-size: 16px; font-weight: 700; color: var(--green); white-space: nowrap; }
+
+    .incident-list { display: flex; flex-direction: column; gap: 8px; }
+    .incident-item {
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      display: flex; justify-content: space-between; align-items: flex-start; gap: 10px;
+    }
+    .incident-item.severity-critical { border-left: 3px solid var(--red); }
+    .incident-item.severity-high     { border-left: 3px solid var(--yellow); }
+    .incident-item.severity-medium   { border-left: 3px solid var(--purple); }
+    .incident-desc { font-size: 13px; }
+    .incident-type { font-size: 11px; color: var(--text-muted); margin-top: 2px; font-family: monospace; }
+
+    /* ── Next experiment ─────────────────────────────────────────── */
+    .next-exp-grid {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: var(--gap);
+      align-items: start;
+    }
+    .next-exp-hypothesis { font-size: 15px; font-weight: 600; margin-bottom: 10px; }
+    .changes-list { list-style: none; padding: 0; }
+    .changes-list li::before { content: "• "; color: var(--blue); }
+    .changes-list li { padding: 2px 0; font-size: 13px; color: var(--text-muted); }
+    .expected-effect { font-size: 13px; color: var(--text-muted); margin-top: 10px; }
+    .risk-badge { display: inline-block; padding: 4px 12px; border-radius: 4px; font-size: 12px; font-weight: 700; text-transform: uppercase; }
+    .risk-low    { background: rgba(63,185,80,0.15);  color: var(--green); }
+    .risk-medium { background: rgba(210,153,34,0.15); color: var(--yellow); }
+    .risk-high   { background: rgba(248,81,73,0.15);  color: var(--red); }
+
+    /* ── Workers list ────────────────────────────────────────────── */
+    .workers-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+    .worker-pill {
+      display: flex; align-items: center; gap: 5px;
+      padding: 2px 8px; border-radius: 12px;
+      border: 1px solid var(--border);
+      font-size: 11px; font-family: monospace;
+    }
+    .worker-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
+
+    /* ── Morning summary ─────────────────────────────────────────── */
+    #morning-section {
+      display: none;
+    }
+    #morning-section.visible { display: block; }
+    .morning-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 12px;
+      margin-top: 10px;
+    }
+    .morning-stat { text-align: center; }
+    .morning-stat-val { font-size: 22px; font-weight: 700; color: var(--blue); }
+    .morning-stat-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; }
+    .morning-rec {
+      margin-top: 12px;
+      padding: 10px 14px;
+      background: rgba(56,139,253,0.08);
+      border: 1px solid rgba(56,139,253,0.25);
+      border-radius: var(--radius);
+      font-size: 13px;
+      color: var(--text);
+    }
+
+    /* ── Footer ──────────────────────────────────────────────────── */
+    footer {
+      text-align: center;
+      padding: 16px;
+      color: var(--text-muted);
+      font-size: 12px;
+      border-top: 1px solid var(--border);
+    }
+
+    /* ── Empty state ─────────────────────────────────────────────── */
+    .empty { color: var(--text-muted); font-size: 13px; padding: 12px 0; }
+  </style>
+</head>
+<body>
+<div class="main-wrap">
+
+  <!-- ═══════════════════════════ HEADER ═══════════════════════════ -->
+  <div id="header">
+    <div class="logo">
+      <div class="logo-icon">&#9881;</div>
+      <div>
+        <div class="logo-text">DRL AutoResearch</div>
+        <div class="logo-project" id="project-name">Loading...</div>
+      </div>
+    </div>
+
+    <div class="header-center">
+      <span class="phase-badge" id="phase-badge">research</span>
+      <div class="live-indicator" id="live-indicator">
+        <div class="live-dot"></div>
+        <span class="live-label" id="live-label">LIVE</span>
+      </div>
+    </div>
+
+    <div class="header-right">
+      <span>Last updated</span>
+      <span id="last-updated">—</span>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════ ROW 1 — STAT CARDS ═══════════════ -->
+  <div class="grid-4">
+
+    <!-- Total Runs -->
+    <div class="card stat-card">
+      <div class="card-title">Total Runs</div>
+      <div class="card-value" id="stat-total-runs">—</div>
+      <div class="card-sub" id="stat-runs-breakdown">kept — / discarded — / crashed —</div>
+    </div>
+
+    <!-- Best Model -->
+    <div class="card stat-card">
+      <div class="card-title">Best Model</div>
+      <div class="card-value" id="stat-best-value">—</div>
+      <div class="card-sub" id="stat-best-runid">run ID: —</div>
+    </div>
+
+    <!-- Active Workers -->
+    <div class="card stat-card">
+      <div class="card-title">Active Workers</div>
+      <div class="card-value" id="stat-workers-count">—</div>
+      <div class="workers-list" id="workers-list"></div>
+    </div>
+
+    <!-- Alerts -->
+    <div class="card stat-card">
+      <div class="card-title">Open Alerts</div>
+      <div class="card-value alert-count" id="stat-alerts">—</div>
+      <div class="card-sub" id="stat-alerts-sub">incidents open</div>
+    </div>
+
+  </div>
+
+  <!-- ═══════════════════════════ ROW 2 — CHARTS ═══════════════════ -->
+  <div class="grid-2">
+
+    <div class="card">
+      <div class="card-title">Eval Metric History</div>
+      <div class="chart-container">
+        <canvas id="chart-eval"></canvas>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Resource Usage</div>
+      <div class="chart-container">
+        <canvas id="chart-resources"></canvas>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ═══════════════════════════ ROW 3 — EXPERIMENT TABLE ════════ -->
+  <div class="card">
+    <div class="card-title">Experiment Timeline (last 20)</div>
+    <div class="table-wrap">
+      <table id="exp-table">
+        <thead>
+          <tr>
+            <th>Run ID</th>
+            <th>Hypothesis</th>
+            <th>Eval Metric</th>
+            <th>Status</th>
+            <th>Decision</th>
+            <th>Wall-Clock</th>
+            <th>Notes</th>
+          </tr>
+        </thead>
+        <tbody id="exp-tbody">
+          <tr><td colspan="7" class="empty">Awaiting data...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════ ROW 4 — TOP MODELS + INCIDENTS ══ -->
+  <div class="grid-2">
+
+    <div class="card">
+      <div class="card-title">Top 5 Models</div>
+      <div class="rank-list" id="top-models-list">
+        <div class="empty">No data yet.</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Open Incidents</div>
+      <div class="incident-list" id="incidents-list">
+        <div class="empty">No open incidents.</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ═══════════════════════════ ROW 5 — NEXT EXPERIMENT ═════════ -->
+  <div class="card" id="next-exp-card">
+    <div class="card-title">Next Planned Experiment</div>
+    <div id="next-exp-content">
+      <div class="empty">No experiment queued.</div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════ MORNING SUMMARY ═════════════════ -->
+  <div class="card" id="morning-section">
+    <div class="card-title">&#9728; Morning Summary</div>
+    <div id="morning-content"></div>
+  </div>
+
+</div><!-- /.main-wrap -->
+
+<footer>DRL AutoResearch &mdash; live dashboard</footer>
+
+<script>
+/* ═══════════════════════════════════════════════════════════════════
+   Utility helpers
+════════════════════════════════════════════════════════════════════ */
+function safeVal(v, fallback = '—') {
+  return (v !== null && v !== undefined && v !== '') ? v : fallback;
+}
+
+function fmtNum(v, decimals = 4) {
+  if (v === null || v === undefined) return '—';
+  return Number(v).toFixed(decimals);
+}
+
+function fmtDuration(seconds) {
+  if (seconds === null || seconds === undefined) return '—';
+  const s = Math.round(Number(seconds));
+  if (s < 60) return `${s}s`;
+  if (s < 3600) return `${Math.floor(s/60)}m ${s%60}s`;
+  return `${Math.floor(s/3600)}h ${Math.floor((s%3600)/60)}m`;
+}
+
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function truncate(str, n = 60) {
+  if (!str) return '';
+  str = String(str);
+  return str.length > n ? str.slice(0, n) + '…' : str;
+}
+
+function decisonBadge(decision, status) {
+  if (status === 'crashed') return '<span class="badge badge-crash">crashed</span>';
+  if (status === 'running')  return '<span class="badge badge-running">running</span>';
+  if (decision === 'keep')   return '<span class="badge badge-keep">keep</span>';
+  if (decision === 'discard')return '<span class="badge badge-discard">discard</span>';
+  return '<span class="badge badge-pending">' + escapeHtml(safeVal(decision, 'pending')) + '</span>';
+}
+
+function rowClass(decision, status) {
+  if (status === 'crashed' || status === 'crashed') return 'row-crash';
+  if (decision === 'keep')    return 'row-keep';
+  if (decision === 'discard') return 'row-discard';
+  if (status === 'running')   return 'row-running';
+  return '';
+}
+
+function riskClass(risk) {
+  if (!risk) return 'risk-medium';
+  switch (risk.toLowerCase()) {
+    case 'low':  return 'risk-low';
+    case 'high': return 'risk-high';
+    default:     return 'risk-medium';
+  }
+}
+
+function severityBadge(sev) {
+  const cls = { critical: 'badge-critical', high: 'badge-high', medium: 'badge-medium', low: 'badge-low' };
+  return `<span class="badge ${cls[sev] || 'badge-low'}">${escapeHtml(sev || 'unknown')}</span>`;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Chart initialisation
+════════════════════════════════════════════════════════════════════ */
+Chart.defaults.color = '#8b949e';
+Chart.defaults.borderColor = '#30363d';
+Chart.defaults.font.family = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+
+/* ─── Eval metric history chart ─── */
+const evalCtx = document.getElementById('chart-eval').getContext('2d');
+const evalChart = new Chart(evalCtx, {
+  type: 'line',
+  data: {
+    labels: [],
+    datasets: [
+      {
+        label: 'Kept',
+        data: [],
+        borderColor: '#3fb950',
+        backgroundColor: 'rgba(63,185,80,0.08)',
+        pointBackgroundColor: '#3fb950',
+        pointRadius: 4,
+        tension: 0.25,
+        fill: true,
+        spanGaps: true,
+      },
+      {
+        label: 'Discarded',
+        data: [],
+        borderColor: 'transparent',
+        backgroundColor: 'transparent',
+        pointBackgroundColor: '#f85149',
+        pointBorderColor: '#f85149',
+        pointRadius: 5,
+        pointStyle: 'circle',
+        showLine: false,
+      },
+    ],
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    animation: { duration: 300 },
+    plugins: {
+      legend: { position: 'top', labels: { boxWidth: 12, padding: 16 } },
+      tooltip: {
+        callbacks: {
+          label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y !== null ? ctx.parsed.y.toFixed(4) : 'N/A'}`,
+        },
+      },
+    },
+    scales: {
+      x: { title: { display: true, text: 'Run #', color: '#8b949e' } },
+      y: { title: { display: true, text: 'Eval Metric', color: '#8b949e' } },
+    },
+  },
+});
+
+/* ─── Resource usage chart ─── */
+const resCtx = document.getElementById('chart-resources').getContext('2d');
+const resourceChart = new Chart(resCtx, {
+  type: 'line',
+  data: {
+    labels: [],
+    datasets: [
+      { label: 'CPU %',     data: [], borderColor: '#388bfd', pointRadius: 2, tension: 0.3, fill: false },
+      { label: 'RAM %',     data: [], borderColor: '#a5a5ff', pointRadius: 2, tension: 0.3, fill: false },
+      { label: 'GPU Util%', data: [], borderColor: '#3fb950', pointRadius: 2, tension: 0.3, fill: false },
+      { label: 'VRAM GB',   data: [], borderColor: '#d29922', pointRadius: 2, tension: 0.3, fill: false },
+    ],
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    animation: { duration: 200 },
+    plugins: {
+      legend: { position: 'top', labels: { boxWidth: 12, padding: 10 } },
+    },
+    scales: {
+      x: { ticks: { maxTicksLimit: 10 } },
+      y: { beginAtZero: true },
+    },
+  },
+});
+
+/* ─── Resource rolling window ─── */
+const MAX_RESOURCE_POINTS = 60;
+const resourceHistory = { labels: [], cpu: [], ram: [], gpuUtil: [], vram: [] };
+
+/* ═══════════════════════════════════════════════════════════════════
+   Dashboard update logic
+════════════════════════════════════════════════════════════════════ */
+function updateDashboard(data) {
+  if (!data) return;
+
+  /* ── Header ── */
+  document.getElementById('project-name').textContent = safeVal(data.project_name, 'Unknown project');
+  document.getElementById('phase-badge').textContent = safeVal(data.current_phase, 'research');
+  const ts = data.timestamp ? new Date(data.timestamp).toLocaleTimeString() : '—';
+  document.getElementById('last-updated').textContent = ts;
+
+  /* ── Stat cards ── */
+  document.getElementById('stat-total-runs').textContent = safeVal(data.total_runs, 0);
+  document.getElementById('stat-runs-breakdown').textContent =
+    `kept ${safeVal(data.kept_runs, 0)} / discarded ${safeVal(data.discarded_runs, 0)} / crashed ${safeVal(data.crashed_runs, 0)}`;
+
+  const bestVal = data.best_metric_value !== null && data.best_metric_value !== undefined
+    ? Number(data.best_metric_value).toFixed(4)
+    : '—';
+  const bestName = safeVal(data.best_metric_name, 'metric');
+  document.getElementById('stat-best-value').textContent = `${bestVal} ${bestName}`;
+  document.getElementById('stat-best-runid').textContent = `run ID: ${safeVal(data.best_run_id, '—')}`;
+
+  /* ── Workers ── */
+  const workers = Array.isArray(data.workers) ? data.workers : [];
+  document.getElementById('stat-workers-count').textContent = workers.length;
+  const wList = document.getElementById('workers-list');
+  if (workers.length === 0) {
+    wList.innerHTML = '<span style="color:var(--text-muted);font-size:11px;">none active</span>';
+  } else {
+    wList.innerHTML = workers.map(w =>
+      `<span class="worker-pill"><span class="worker-dot"></span>${escapeHtml(w.worker_id || '?')}</span>`
+    ).join('');
+  }
+
+  /* ── Alerts ── */
+  const incidents = Array.isArray(data.incidents) ? data.incidents : [];
+  const openCount = incidents.length;
+  const alertEl = document.getElementById('stat-alerts');
+  alertEl.textContent = openCount;
+  alertEl.className = 'card-value alert-count' + (openCount > 0 ? ' has-alerts' : '');
+
+  /* ── Eval history chart ── */
+  updateEvalChart(data);
+
+  /* ── Resource chart ── */
+  updateResourceChart(data.resource_usage);
+
+  /* ── Experiment table ── */
+  updateTable(data.experiment_timeline);
+
+  /* ── Top models ── */
+  updateTopModels(data.top_runs, data.best_metric_name);
+
+  /* ── Incidents ── */
+  updateIncidents(incidents);
+
+  /* ── Next experiment ── */
+  updateNextExperiment(data.next_experiment);
+
+  /* ── Morning summary ── */
+  updateMorningSummary(data.morning_summary);
+}
+
+/* ─── Eval history chart update ─── */
+function updateEvalChart(data) {
+  const timeline = Array.isArray(data.experiment_timeline) ? data.experiment_timeline : [];
+  const metricKey = 'eval_reward_mean';
+
+  const labels = [];
+  const keptData = [];
+  const discardedData = [];
+
+  timeline.forEach((row, idx) => {
+    labels.push(idx + 1);
+    const val = row[metricKey] !== null && row[metricKey] !== undefined ? row[metricKey] : null;
+    const decision = row.keep_decision || '';
+    const status   = row.status || '';
+
+    if (status === 'crashed' || decision === 'discard') {
+      keptData.push(null);
+      discardedData.push(val);
+    } else {
+      keptData.push(val);
+      discardedData.push(null);
+    }
+  });
+
+  evalChart.data.labels = labels;
+  evalChart.data.datasets[0].data = keptData;
+  evalChart.data.datasets[1].data = discardedData;
+  evalChart.update('none');
+}
+
+/* ─── Resource chart update ─── */
+function updateResourceChart(res) {
+  if (!res || !res.available) return;
+
+  const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  resourceHistory.labels.push(now);
+  resourceHistory.cpu.push(res.cpu_percent !== undefined ? res.cpu_percent : null);
+  resourceHistory.ram.push(res.ram_percent !== undefined ? res.ram_percent : null);
+  resourceHistory.gpuUtil.push(res.gpu_util !== undefined ? res.gpu_util : null);
+  resourceHistory.vram.push(res.gpu_memory_gb !== undefined ? res.gpu_memory_gb : null);
+
+  // Trim to rolling window
+  if (resourceHistory.labels.length > MAX_RESOURCE_POINTS) {
+    resourceHistory.labels.shift();
+    resourceHistory.cpu.shift();
+    resourceHistory.ram.shift();
+    resourceHistory.gpuUtil.shift();
+    resourceHistory.vram.shift();
+  }
+
+  resourceChart.data.labels = [...resourceHistory.labels];
+  resourceChart.data.datasets[0].data = [...resourceHistory.cpu];
+  resourceChart.data.datasets[1].data = [...resourceHistory.ram];
+  resourceChart.data.datasets[2].data = [...resourceHistory.gpuUtil];
+  resourceChart.data.datasets[3].data = [...resourceHistory.vram];
+  resourceChart.update('none');
+}
+
+/* ─── Experiment table ─── */
+function updateTable(timeline) {
+  const tbody = document.getElementById('exp-tbody');
+  if (!Array.isArray(timeline) || timeline.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="7" class="empty">No experiments recorded yet.</td></tr>';
+    return;
+  }
+
+  const rows = [...timeline].reverse().slice(0, 20);
+  tbody.innerHTML = rows.map(row => {
+    const decision = row.keep_decision || '';
+    const status   = row.status || '';
+    const cls = rowClass(decision, status);
+    const metric = row.eval_reward_mean !== null && row.eval_reward_mean !== undefined
+      ? Number(row.eval_reward_mean).toFixed(4)
+      : (row.custom_metric_value !== null && row.custom_metric_value !== undefined
+          ? Number(row.custom_metric_value).toFixed(4) : '—');
+
+    return `<tr class="${cls}">
+      <td style="font-family:monospace;font-size:12px;color:var(--blue)">${escapeHtml(truncate(row.run_id || '—', 20))}</td>
+      <td title="${escapeHtml(row.hypothesis || '')}">${escapeHtml(truncate(row.hypothesis || '—', 55))}</td>
+      <td>${metric}</td>
+      <td>${decisonBadge(decision, status)}</td>
+      <td>${decisonBadge(decision, status)}</td>
+      <td>${fmtDuration(row.wall_clock_seconds)}</td>
+      <td title="${escapeHtml(row.notes || '')}">${escapeHtml(truncate(row.notes || '—', 40))}</td>
+    </tr>`;
+  }).join('');
+}
+
+/* ─── Top models ─── */
+function updateTopModels(topRuns, metricName) {
+  const el = document.getElementById('top-models-list');
+  if (!Array.isArray(topRuns) || topRuns.length === 0) {
+    el.innerHTML = '<div class="empty">No models yet.</div>';
+    return;
+  }
+  const rankLabels = ['', '&#127941;', '&#129352;', '&#129353;', '4', '5'];
+  const rankClasses = ['', 'gold', 'silver', 'bronze', '', ''];
+  el.innerHTML = topRuns.map((run, i) => {
+    const num = i + 1;
+    const metricVal = run.metric !== null && run.metric !== undefined ? Number(run.metric).toFixed(4) : '—';
+    return `<div class="rank-item">
+      <div class="rank-num ${rankClasses[num] || ''}">${rankLabels[num] || num}</div>
+      <div class="rank-body">
+        <div class="rank-id">${escapeHtml(truncate(run.run_id || '—', 24))}</div>
+        <div class="rank-hyp">${escapeHtml(truncate(run.hypothesis || '—', 60))}</div>
+      </div>
+      <div class="rank-metric">${metricVal}</div>
+    </div>`;
+  }).join('');
+}
+
+/* ─── Incidents ─── */
+function updateIncidents(incidents) {
+  const el = document.getElementById('incidents-list');
+  if (!Array.isArray(incidents) || incidents.length === 0) {
+    el.innerHTML = '<div class="empty">No open incidents. &#10003;</div>';
+    return;
+  }
+  el.innerHTML = incidents.map(inc => {
+    const sev = inc.severity || 'medium';
+    return `<div class="incident-item severity-${escapeHtml(sev)}">
+      <div>
+        <div class="incident-desc">${escapeHtml(truncate(inc.description || inc.type || 'Incident', 80))}</div>
+        <div class="incident-type">${escapeHtml(inc.type || inc.incident_type || '—')}</div>
+      </div>
+      <div>${severityBadge(sev)}</div>
+    </div>`;
+  }).join('');
+}
+
+/* ─── Next experiment ─── */
+function updateNextExperiment(exp) {
+  const el = document.getElementById('next-exp-content');
+  if (!exp) {
+    el.innerHTML = '<div class="empty">No experiment queued.</div>';
+    return;
+  }
+  const changes = Array.isArray(exp.changes) ? exp.changes : (exp.changes ? [exp.changes] : []);
+  const changeItems = changes.map(c => `<li>${escapeHtml(c)}</li>`).join('');
+  const risk = exp.risk_level || 'medium';
+  el.innerHTML = `
+    <div class="next-exp-grid">
+      <div>
+        <div class="next-exp-hypothesis">${escapeHtml(exp.hypothesis || 'No hypothesis provided.')}</div>
+        ${changeItems ? `<ul class="changes-list">${changeItems}</ul>` : ''}
+        ${exp.expected_effect
+          ? `<div class="expected-effect"><strong>Expected:</strong> ${escapeHtml(exp.expected_effect)}</div>`
+          : ''}
+      </div>
+      <div>
+        <span class="risk-badge ${riskClass(risk)}">${escapeHtml(risk)} risk</span>
+      </div>
+    </div>`;
+}
+
+/* ─── Morning summary ─── */
+function updateMorningSummary(summary) {
+  const section = document.getElementById('morning-section');
+  if (!summary) {
+    section.classList.remove('visible');
+    return;
+  }
+  section.classList.add('visible');
+  const el = document.getElementById('morning-content');
+  el.innerHTML = `
+    <div class="morning-grid">
+      <div class="morning-stat">
+        <div class="morning-stat-val">${safeVal(summary.total_runs, 0)}</div>
+        <div class="morning-stat-label">Total Runs</div>
+      </div>
+      <div class="morning-stat">
+        <div class="morning-stat-val">${safeVal(summary.kept_runs, 0)}</div>
+        <div class="morning-stat-label">Kept</div>
+      </div>
+      <div class="morning-stat">
+        <div class="morning-stat-val">${safeVal(summary.crashed_runs, 0)}</div>
+        <div class="morning-stat-label">Crashed</div>
+      </div>
+      <div class="morning-stat">
+        <div class="morning-stat-val">${summary.best_eval_reward !== null && summary.best_eval_reward !== undefined ? Number(summary.best_eval_reward).toFixed(4) : '—'}</div>
+        <div class="morning-stat-label">Best Reward</div>
+      </div>
+      <div class="morning-stat">
+        <div class="morning-stat-val">${safeVal(summary.elapsed_hours, 0)}h</div>
+        <div class="morning-stat-label">Elapsed</div>
+      </div>
+    </div>
+    ${summary.best_run_id
+      ? `<div class="morning-rec">Best run overnight: <strong style="color:var(--blue)">${escapeHtml(summary.best_run_id)}</strong> &mdash; continue from this checkpoint.</div>`
+      : ''}`;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   SSE connection with auto-reconnect
+════════════════════════════════════════════════════════════════════ */
+let _es = null;
+let _reconnectTimer = null;
+
+function setConnected(connected) {
+  const indicator = document.getElementById('live-indicator');
+  const label     = document.getElementById('live-label');
+  if (connected) {
+    indicator.classList.remove('disconnected');
+    label.textContent = 'LIVE';
+  } else {
+    indicator.classList.add('disconnected');
+    label.textContent = 'DISCONNECTED';
+  }
+}
+
+function connect() {
+  if (_es) {
+    _es.close();
+    _es = null;
+  }
+  clearTimeout(_reconnectTimer);
+
+  _es = new EventSource('/events');
+
+  _es.addEventListener('update', (e) => {
+    try {
+      const data = JSON.parse(e.data);
+      setConnected(true);
+      updateDashboard(data);
+    } catch (err) {
+      console.warn('Dashboard parse error:', err);
+    }
+  });
+
+  _es.addEventListener('ping', () => {
+    setConnected(true);
+  });
+
+  _es.addEventListener('error', () => {
+    setConnected(false);
+    _es.close();
+    _es = null;
+    _reconnectTimer = setTimeout(connect, 3000);
+  });
+
+  // Generic message fallback (event type "message")
+  _es.onmessage = (e) => {
+    try {
+      const data = JSON.parse(e.data);
+      setConnected(true);
+      updateDashboard(data);
+    } catch (_) {}
+  };
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Bootstrap: also fetch initial data via REST so we're not blank
+════════════════════════════════════════════════════════════════════ */
+function fetchInitialData() {
+  fetch('/api/data')
+    .then(r => r.ok ? r.json() : null)
+    .then(data => { if (data) updateDashboard(data); })
+    .catch(() => {});
+}
+
+fetchInitialData();
+connect();
+</script>
+</body>
+</html>

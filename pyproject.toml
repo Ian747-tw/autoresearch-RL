@@ -16,6 +16,14 @@ dependencies = [
     "torch==2.9.1",
 ]
 
+[project.scripts]
+drl-autoresearch = "drl_autoresearch.cli:main"
+
+[project.optional-dependencies]
+dashboard = ["aiohttp>=3.9.0"]
+tui = ["questionary>=2.0.0"]
+full = ["aiohttp>=3.9.0", "questionary>=2.0.0"]
+
 [tool.uv.sources]
 torch = [
     { index = "pytorch-cu128" },
