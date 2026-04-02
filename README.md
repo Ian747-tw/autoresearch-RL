@@ -105,13 +105,38 @@ This is in addition to normal training/registry status views.
 ```bash
 git clone https://github.com/Ian747-tw/autoresearch-RL
 cd autoresearch-RL
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
 pip install -e .
 ```
+
+Ubuntu/Debian note:
+- If you see `externally-managed-environment` (PEP 668), install inside `.venv` as shown above.
 
 Verify CLI:
 
 ```bash
 drl-autoresearch --help
+```
+
+### Update existing local clone (no re-download)
+
+```bash
+cd ~/autoresearch-RL
+git pull --rebase origin master
+source .venv/bin/activate
+pip install -e .
+```
+
+If dependencies changed, run:
+
+```bash
+cd ~/autoresearch-RL
+git pull --rebase origin master
+source .venv/bin/activate
+python -m pip install --upgrade pip
+pip install -e .
 ```
 
 ## End-to-End Workflow
