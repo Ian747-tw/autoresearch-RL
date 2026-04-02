@@ -203,6 +203,15 @@ drl-autoresearch plan --refresh
 drl-autoresearch research
 ```
 
+If your agent session drops or you start a new session, use one-line resume:
+
+```bash
+drl-autoresearch resume --project-dir .
+```
+
+This performs compact sync (status + tail windows of registry/journal/handoffs/incidents)
+and then continues the run loop automatically.
+
 ### Step 5: Open dashboard
 
 ```bash
@@ -254,12 +263,19 @@ drl-autoresearch doctor [--project-dir DIR] [--fix]
 drl-autoresearch run [--project-dir DIR] [--parallel N] [--dry-run]
 ```
 
+### Resume
+
+```bash
+drl-autoresearch resume [--project-dir DIR] [--parallel N] [--dry-run] [--no-run]
+```
+
 ### Other core commands
 
 ```bash
 drl-autoresearch status    [--project-dir DIR]
 drl-autoresearch plan      [--project-dir DIR] [--refresh]
 drl-autoresearch research  [--project-dir DIR]
+drl-autoresearch resume    [--project-dir DIR] [--parallel N] [--dry-run] [--no-run]
 drl-autoresearch check     --action ACTION [--details JSON] [--project-dir DIR]
 drl-autoresearch dashboard [--project-dir DIR] [--port PORT]
 ```

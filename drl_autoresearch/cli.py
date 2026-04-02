@@ -77,6 +77,10 @@ def _core_research():
     from drl_autoresearch.core import research as _research
     return _research
 
+def _core_resume():
+    from drl_autoresearch.core import resume as _resume
+    return _resume
+
 def _core_check():
     from drl_autoresearch.core import check as _check
     return _check
@@ -158,6 +162,17 @@ def _cmd_research(args: argparse.Namespace) -> int:
     project_dir = Path(args.project_dir).resolve()
     mod = _core_research()
     return mod.run(project_dir=project_dir)
+
+
+def _cmd_resume(args: argparse.Namespace) -> int:
+    project_dir = Path(args.project_dir).resolve()
+    mod = _core_resume()
+    return mod.run(
+        project_dir=project_dir,
+        parallel=args.parallel,
+        dry_run=args.dry_run,
+        no_run=args.no_run,
+    )
 
 
 def _cmd_check(args: argparse.Namespace) -> int:
@@ -422,6 +437,44 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Root of the target project (default: current directory).",
     )
     p_research.set_defaults(func=_cmd_research)
+
+    # -- resume --------------------------------------------------------------
+    p_resume = sub.add_parser(
+        "resume",
+        help="Recover a dropped session with compact sync, then continue run loop.",
+        description=(
+            "Run a token-saving session sync for interrupted/new sessions: "
+            "print status, tail key logs (registry/journal/handoffs/incidents), "
+            "emit a compact checkpoint, then continue autonomous run by default."
+        ),
+    )
+    p_resume.add_argument(
+        "--project-dir",
+        default=".",
+        metavar="DIR",
+        help="Root of the target project (default: current directory).",
+    )
+    p_resume.add_argument(
+        "--parallel",
+        type=int,
+        default=1,
+        metavar="N",
+        help="Maximum number of experiments to run concurrently when continuing (default: 1).",
+    )
+    p_resume.add_argument(
+        "--dry-run",
+        action="store_true",
+        help=(
+            "After resume sync, validate and print planned execution without "
+            "running experiments."
+        ),
+    )
+    p_resume.add_argument(
+        "--no-run",
+        action="store_true",
+        help="Only perform resume sync/checkpoint; do not start the run loop.",
+    )
+    p_resume.set_defaults(func=_cmd_resume)
 
     # -- check ---------------------------------------------------------------
     p_check = sub.add_parser(
