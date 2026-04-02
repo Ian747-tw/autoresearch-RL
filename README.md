@@ -64,7 +64,20 @@ Init onboarding captures key inputs including:
 
 These settings are saved into `.drl_autoresearch/` and reused by init/run/doctor flows.
 
-### 5. Environment doctor with auto-fix path
+### 5. Automatic compact spec indexing (token-saving)
+
+After init, the system auto-generates:
+
+- `.drl_autoresearch/spec_compact.md` (compact navigator)
+- `.drl_autoresearch/spec_index.json` (machine-readable pointer index)
+
+Design intent:
+- structure is source-driven (derived from the actual spec/rules document structure), not a fixed hard-coded schema
+- compact file is for fast navigation only
+- original source files remain the source of truth for detailed clarification
+- entries include line pointers (for example `USER_SPEC.md:300`) so agents can jump directly to relevant details without loading whole files
+
+### 6. Environment doctor with auto-fix path
 
 - `drl-autoresearch doctor` validates runtime health.
 - `drl-autoresearch doctor --fix` attempts remediation automatically:
@@ -74,14 +87,14 @@ These settings are saved into `.drl_autoresearch/` and reused by init/run/doctor
   - includes fallback handling for externally-managed Python environments (PEP 668)
 - Init triggers best-effort remediation so setup issues are handled early.
 
-### 6. Stuck refresh with cooldown (token saving)
+### 7. Stuck refresh with cooldown (token saving)
 
 - Stuck detection can trigger research/plan refresh when progress stalls.
 - Refresh trigger is orchestrator-first, with local fallback heuristics.
 - Cooldown state prevents repeated refresh loops that waste tokens.
 - State includes mode/bootstrap/refresh metadata for observability.
 
-### 7. Dashboard workflow visibility
+### 8. Dashboard workflow visibility
 
 Dashboard includes workflow snapshot fields such as:
 
@@ -160,8 +173,9 @@ Init flow:
 3. Captures skill-pack choice (`drl` or `custom`).
 4. Captures project mode (`build` or `improve`).
 5. Installs selected plugin assets (`cc`, `codex`, `both`, `none`).
-6. Runs best-effort environment remediation.
-7. Persists startup state for orchestrator and dashboard.
+6. Auto-generates compact spec/index artifacts with source line pointers.
+7. Runs best-effort environment remediation.
+8. Persists startup state for orchestrator and dashboard.
 
 Non-interactive examples:
 

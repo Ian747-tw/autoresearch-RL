@@ -21,8 +21,10 @@ Creates:
 from __future__ import annotations
 
 import json
+import re
 import sys
 import textwrap
+from datetime import datetime, timezone
 from pathlib import Path
 
 from drl_autoresearch.cli import console
@@ -272,6 +274,7 @@ def run(
             selected_skill_pack=selected_skill_pack,
             selected_project_mode=selected_project_mode,
         )
+        _write_compact_spec_artifacts(project_dir=project_dir)
 
         # Initialise / update state.json.
         state = ProjectState.load(project_dir)
@@ -517,6 +520,230 @@ def _write_skill_pack_metadata(
         encoding="utf-8",
     )
     console(f"Created {metadata_path.relative_to(config_dir.parent)}", "success")
+
+
+def _write_compact_spec_artifacts(project_dir: Path) -> None:
+    """Generate compact spec summary + source pointers after init.
+
+    Artifacts:
+      - .drl_autoresearch/spec_compact.md
+      - .drl_autoresearch/spec_index.json
+    """
+    config_dir = project_dir / ".drl_autoresearch"
+    config_dir.mkdir(parents=True, exist_ok=True)
+
+    sources = _discover_spec_sources(project_dir)
+    if not sources:
+        return
+
+    index = {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "strategy": {
+            "schema": "source-driven",
+            "notes": (
+                "Sections are inferred from source document structure "
+                "(headings/ordered items/top-level keys), not fixed categories."
+            ),
+        },
+        "sources": [],
+    }
+
+    compact_lines: list[str] = [
+        "# Compact Spec (Auto-Generated)\n",
+        "",
+        "This file is a token-saving navigation layer. It is **not** the source of truth.",
+        "For detailed clarification, always open the original source file and lines listed below.",
+        "",
+        "## Reading Policy",
+        "",
+        "1. Read this compact file first.",
+        "2. Follow pointers (`path:line`) for detailed clarification.",
+        "3. If compact/original conflict, trust original source documents.",
+        "",
+        "## Source Index",
+        "",
+    ]
+
+    for src in sources:
+        try:
+            text = src.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        lines = text.splitlines()
+        anchors = _extract_source_anchors(lines)
+
+        rel = src.relative_to(project_dir).as_posix()
+        index["sources"].append(
+            {
+                "path": rel,
+                "line_count": len(lines),
+                "anchors": anchors,
+            }
+        )
+
+        compact_lines.append(f"### `{rel}` ({len(lines)} lines)")
+        if not anchors:
+            compact_lines.append("- no structured anchors detected; use file-level read")
+            compact_lines.append(f"- pointer: `{rel}:1`")
+            compact_lines.append("")
+            continue
+
+        for a in anchors:
+            pointer = f"{rel}:{a['line_start']}"
+            title = a["title"]
+            preview = a["preview"]
+            line_range = f"{a['line_start']}-{a['line_end']}"
+            if preview:
+                compact_lines.append(
+                    f"- `{pointer}` [{line_range}] **{title}** — {preview}"
+                )
+            else:
+                compact_lines.append(
+                    f"- `{pointer}` [{line_range}] **{title}**"
+                )
+        compact_lines.append("")
+
+    compact_path = config_dir / "spec_compact.md"
+    index_path = config_dir / "spec_index.json"
+    compact_path.write_text("\n".join(compact_lines).rstrip() + "\n", encoding="utf-8")
+    index_path.write_text(json.dumps(index, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    console(f"Created {compact_path.relative_to(project_dir)}", "success")
+    console(f"Created {index_path.relative_to(project_dir)}", "success")
+
+
+def _discover_spec_sources(project_dir: Path) -> list[Path]:
+    """Return candidate source documents for compact spec generation."""
+    config_dir = project_dir / ".drl_autoresearch"
+
+    prioritized = [
+        config_dir / "onboarding.yaml",
+        config_dir / "onboarding.json",
+        project_dir / "NON_NEGOTIABLE_RULES.md",
+        project_dir / "USER_SPEC.md",
+        project_dir / "SPEC.md",
+        project_dir / "spec.md",
+        project_dir / "RULES.md",
+        project_dir / "rules.md",
+    ]
+
+    discovered: list[Path] = []
+    seen: set[Path] = set()
+
+    def _add(path: Path) -> None:
+        if path in seen or not path.is_file():
+            return
+        seen.add(path)
+        discovered.append(path)
+
+    for p in prioritized:
+        _add(p)
+
+    # Additional root-level candidate docs (spec-driven, bounded scope).
+    for p in sorted(project_dir.iterdir()):
+        if not p.is_file():
+            continue
+        if p.suffix.lower() not in {".md", ".txt"}:
+            continue
+        if p.name.startswith("."):
+            continue
+        if p.stat().st_size > 2_000_000:
+            continue
+        name_l = p.name.lower()
+        if any(
+            key in name_l
+            for key in ("spec", "rule", "homework", "assignment", "rubric", "submission")
+        ):
+            _add(p)
+
+    return discovered
+
+
+def _extract_source_anchors(lines: list[str]) -> list[dict[str, object]]:
+    """Extract structural anchors with pointers and compact previews."""
+    heading_pat = re.compile(r"^\s{0,3}(#{1,6})\s+(.+?)\s*$")
+    ordered_pat = re.compile(r"^\s{0,3}(\d+[\.\)])\s+(.+?)\s*$")
+    key_pat = re.compile(r"^\s{0,2}([A-Za-z0-9_\-]+)\s*:\s*(.*?)\s*$")
+
+    markers: list[tuple[int, str, str]] = []
+    for idx, raw in enumerate(lines, start=1):
+        line = raw.rstrip()
+        if not line:
+            continue
+
+        m = heading_pat.match(line)
+        if m:
+            level = len(m.group(1))
+            title = m.group(2).strip()
+            markers.append((idx, f"h{level}", title))
+            continue
+
+        m = ordered_pat.match(line)
+        if m and len(m.group(2).split()) <= 14:
+            markers.append((idx, "ordered", m.group(2).strip()))
+            continue
+
+        # For YAML/JSON-like files with no markdown headings.
+        if not any(x[1].startswith("h") for x in markers):
+            m = key_pat.match(line)
+            if m and m.group(1) not in {"-", "..."}:
+                key = m.group(1).strip()
+                val = m.group(2).strip()
+                title = f"{key}" if not val else f"{key}: {val[:60]}"
+                markers.append((idx, "key", title))
+
+    if not markers:
+        return []
+
+    anchors: list[dict[str, object]] = []
+    for i, (start, kind, title) in enumerate(markers):
+        end = markers[i + 1][0] - 1 if i + 1 < len(markers) else len(lines)
+        if end < start:
+            end = start
+
+        preview = _section_preview(lines, start, end, heading_title=title)
+        anchors.append(
+            {
+                "kind": kind,
+                "title": title[:120],
+                "line_start": start,
+                "line_end": end,
+                "preview": preview,
+            }
+        )
+
+    # Keep compact: cap to 40 anchors per source.
+    if len(anchors) > 40:
+        anchors = anchors[:40]
+    return anchors
+
+
+def _section_preview(
+    lines: list[str],
+    start: int,
+    end: int,
+    heading_title: str,
+) -> str:
+    """Return a short preview line for the section."""
+    cleaned: list[str] = []
+    for i in range(start, min(end + 1, len(lines) + 1)):
+        line = lines[i - 1].strip()
+        if not line:
+            continue
+        if line.lstrip().startswith("#"):
+            continue
+        if line == heading_title:
+            continue
+        cleaned.append(line)
+        if len(cleaned) >= 3:
+            break
+
+    if not cleaned:
+        return ""
+    preview = " ".join(cleaned)
+    preview = re.sub(r"\s+", " ", preview).strip()
+    if len(preview) > 160:
+        preview = preview[:157].rstrip() + "..."
+    return preview
 
 
 def _format_hardware_summary(hardware: object) -> str:

@@ -10,13 +10,16 @@ overnight unattended runs.
    against these before every code change.
 2. **Read `CLAUDE.md`** — understand the project structure and what you can/cannot modify.
 3. **Check state**: `drl-autoresearch status --project-dir .`
-4. **Token-saving context sync (mandatory, compact reads only)**:
+4. **Read compact spec index first (if present)**:
+   - `.drl_autoresearch/spec_compact.md`
+   - Use pointers inside it to open original source lines only when needed.
+5. **Token-saving context sync (mandatory, compact reads only)**:
    - `tail -n 25 logs/experiment_registry.tsv`
    - `tail -n 120 logs/project_journal.md`
    - `tail -n 80 logs/handoffs.md`
    - `tail -n 80 logs/incidents.md`
-5. **Read `IMPLEMENTATION_PLAN.md`** only if needed to resolve ambiguity from the compact sync.
-6. Write a compact session checkpoint (max 5 lines):
+6. **Read `IMPLEMENTATION_PLAN.md`** only if needed to resolve ambiguity from the compact sync.
+7. Write a compact session checkpoint (max 5 lines):
    - phase/mode
    - best run + metric
    - latest 3 outcomes

@@ -32,6 +32,10 @@ drl-autoresearch status              # read current phase + best run
 Read `NON_NEGOTIABLE_RULES.md`. Every rule is enforced programmatically — do not
 assume you can skip a rule check.
 
+If present, read `.drl_autoresearch/spec_compact.md` before planning changes.
+Treat it as a token-saving navigator only, not source of truth. For details,
+follow its pointers (for example `USER_SPEC.md:300`) and read the original lines.
+
 ## Session Context Sync (Token-Saving, Mandatory)
 
 When switching agents or starting a new session, sync context with compact reads

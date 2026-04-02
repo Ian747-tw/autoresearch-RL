@@ -54,6 +54,10 @@ This will:
    - **Both** (recommended)
    - **None**
 6. Run best-effort environment remediation from onboarding preferences (venv + required package setup), then advise running doctor.
+7. Auto-generate compact spec navigation artifacts:
+   - `.drl_autoresearch/spec_compact.md`
+   - `.drl_autoresearch/spec_index.json`
+   These are token-saving indexes with source line pointers; originals remain source of truth.
 
 For non-interactive CI environments:
 ```bash
