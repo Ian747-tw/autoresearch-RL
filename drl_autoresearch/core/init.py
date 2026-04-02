@@ -146,10 +146,8 @@ _RULES_MD = textwrap.dedent("""\
         **must** pause and wait for explicit human confirmation before proceeding.
 """)
 
-_REGISTRY_HEADER = (
-    "run_id\ttimestamp\thypothesis\tparams_json\t"
-    "metric_name\tmetric_value\tstatus\tnotes\n"
-)
+from drl_autoresearch.logging.registry import COLUMNS as _REGISTRY_COLUMNS
+_REGISTRY_HEADER = "\t".join(_REGISTRY_COLUMNS) + "\n"
 
 
 # ---------------------------------------------------------------------------

@@ -8,13 +8,19 @@
 
 ---
 
+![DRL AutoResearch Dashboard](edited-photo(1).png)
+
+*Live dashboard showing 6 CartPole REINFORCE experiments: training curves, eval curves, resource usage, experiment timeline, and top-models leaderboard.*
+
+---
+
 ## Overview
 
-DRL AutoResearch is an installable Python plugin (`drl-autoresearch`) that brings the AutoResearch loop — spec → plan → change → run → evaluate → log → iterate — to deep reinforcement learning projects. It is designed to run overnight, unattended, and to hand you a structured summary of what was tried, what worked, and what to do next.
+DRL AutoResearch is an installable Python package (`drl-autoresearch`) that brings the AutoResearch loop — spec → plan → change → run → evaluate → log → iterate — to deep reinforcement learning projects. It is designed to run overnight, unattended, and to hand you a structured summary of what was tried, what worked, and what to do next.
 
-Where the original Karpathy-style AutoResearch workflow gives you a general-purpose research automation scaffold, DRL AutoResearch adds the infrastructure that DRL specifically demands: reward shaping protocols, exploration failure diagnosis, checkpoint selection without data leakage, environment debugging playbooks, and a hard rule enforcement layer that prevents the autonomous loop from making expensive or irreversible mistakes. It is not a rewrite — it is a strict extension. The original loop still works unchanged.
+Where the original Karpathy-style AutoResearch workflow gives you a general-purpose research automation scaffold, DRL AutoResearch adds the infrastructure that DRL specifically demands: reward shaping protocols, exploration failure diagnosis, checkpoint selection without data leakage, environment debugging playbooks, and a hard rule enforcement layer that prevents the autonomous loop from making expensive or irreversible mistakes.
 
-The core philosophy is preserved: local-first, repo-native, markdown-guided, minimal ceremony, fast iteration. No databases, no daemon processes, no cloud APIs. All state lives inside your project as plain files. The orchestrator is a single decision authority — no competing agents, no chaos. The skills are markdown files you can read, edit, or replace without touching any Python.
+The core philosophy is preserved: local-first, repo-native, markdown-guided, minimal ceremony, fast iteration. No databases, no daemon processes, no cloud APIs. All state lives inside your project as plain files.
 
 ---
 
@@ -31,7 +37,7 @@ User Spec → Onboarding → Research Plan → Experiment Loop → Results
                                Experiment Registry + Journal
 ```
 
-The orchestrator owns phase progression (`research` → `baseline` → `experimenting` → `focused_tuning` → `ablation` → `converged`), experiment scheduling, and research refresh triggers. Every action an agent proposes is checked against `NON_NEGOTIABLE_RULES.md` by the PolicyEngine before it executes. Results are written to the experiment registry and project journal. The dashboard reads those files and streams updates to a browser in real time.
+The orchestrator owns phase progression (`research` → `baseline` → `experimenting` → `focused_tuning` → `ablation` → `converged`), experiment scheduling, and research refresh triggers. Every action an agent proposes is checked against `NON_NEGOTIABLE_RULES.md` by the PolicyEngine before it executes. Results are written to the experiment registry. The dashboard reads those files and streams updates to the browser in real time.
 
 ---
 
@@ -39,120 +45,66 @@ The orchestrator owns phase progression (`research` → `baseline` → `experime
 
 ### 1. Interactive Onboarding TUI
 
-Running `drl-autoresearch init` launches a terminal questionnaire that collects everything the system needs to operate autonomously:
+Running `drl-autoresearch init` scaffolds all required project files. With `questionary` installed (`[tui]` extra), it launches an interactive terminal questionnaire that collects:
 
 - Project name, environment description, and research objective
 - Hardware configuration — GPUs, VRAM, CPU count, RAM — auto-detected with manual override
 - Python environment path and package manager preference
 - Permission policy (see [Permission Modes](#permission-modes))
-- Hard rules acknowledgment — the researcher confirms or customizes `NON_NEGOTIABLE_RULES.md`
 
-Every question that is skipped is logged with the inferred default value and a confidence score. Nothing is silently assumed.
+Pass `--auto` for fully non-interactive CI-compatible scaffolding.
 
 ### 2. Single Orchestrator
 
-One decision authority manages the entire lifecycle. The orchestrator reads project state from `.drl_autoresearch/state.json`, selects the next experiment based on the current research phase and the experiment registry, schedules worker processes, and decides when to trigger a research refresh (a mid-training literature and implementation review). There are no competing agents and no distributed coordination — complexity that DRL research does not need.
+One decision authority manages the entire lifecycle. The orchestrator reads project state from `.drl_autoresearch/state.json`, selects the next experiment based on the current research phase and the experiment registry, schedules worker processes, and decides when to trigger a research refresh. There are no competing agents and no distributed coordination.
 
 Phase transitions are explicit and logged. The orchestrator will not move to `focused_tuning` until a viable baseline is established, and will not declare `converged` until ablations have been run.
 
 ### 3. Hard Rule Enforcement via PolicyEngine
 
-Rules defined in `NON_NEGOTIABLE_RULES.md` are enforced before every action. Agents check rules with:
+Rules defined in `NON_NEGOTIABLE_RULES.md` are enforced before every agent action:
 
 ```bash
 drl-autoresearch check --action <type> [--details '<json>']
 ```
 
-The PolicyEngine returns `ALLOWED`, `BLOCKED`, or `CONFIRM_REQUIRED` depending on the permission mode and the rule set. Violations are never silently ignored — they are printed to stderr with the specific rule that was violated and appended to `logs/incidents.md`.
+The PolicyEngine returns `ALLOWED` (exit 0) or `BLOCKED` (exit 1). The permission mode controls which action types require confirmation. Violations are printed to stderr with the specific rule that was violated and appended to the audit log.
 
-Permission modes control strictness. In `locked` mode, nothing changes without explicit human approval. In `open` mode, the loop runs fully autonomously. The default is `prompted`.
+### 4. Structured Experiment Registry
 
-### 4. DRL Skill Pack
+Every run is appended to `logs/experiment_registry.tsv` — a tab-separated file with 27 fields per row:
 
-Eight playbooks live in `skills/` and serve as the agent's operating manual for common DRL failure modes. They are plain markdown — readable, editable, and replaceable.
+`run_id`, `parent_run_id`, `timestamp`, `agent`, `branch`, `commit`, `environment`, `algorithm`, `config_summary`, `change_summary`, `hypothesis`, `rules_checked`, `train_reward_mean`, `train_reward_std`, `eval_reward_mean`, `eval_reward_std`, `custom_metric_name`, `custom_metric_value`, `success_rate`, `constraint_violations`, `seed_count`, `wall_clock_seconds`, `gpu_memory_gb`, `ram_gb`, `status`, `keep_decision`, `notes`
 
-| Skill | Purpose |
-|-------|---------|
-| `investigate.md` | Regression diagnosis — systematic checklist for performance drops |
-| `reward_shaping.md` | Reward modification protocol — safe incremental changes, anti-hacking checks |
-| `exploration.md` | Exploration failure diagnosis — entropy collapse, stuck policies |
-| `env_diagnostics.md` | Environment debugging — wrapper bugs, reward signal sanity checks |
-| `ablation.md` | Scientific ablation protocol — controlled component isolation |
-| `checkpoint_selection.md` | Checkpoint management without evaluation data leakage |
-| `compute_budgeting.md` | Compute trade-off reasoning — when to cut a run, when to extend |
-| `mid_training_research.md` | Mid-training research refresh — when and how to incorporate new findings |
+Appends are file-locked and atomic. Multiple workers can write concurrently without corruption.
 
-### 5. Structured Experiment Registry
+### 5. Live Localhost Dashboard
 
-Every run is appended to `logs/experiment_registry.tsv` — a tab-separated log with 26 fields per row:
-
-`run_id`, `parent_run_id`, `agent`, `hypothesis`, `algorithm`, `hyperparams`, `train_reward_mean`, `train_reward_std`, `eval_reward_mean`, `eval_reward_std`, `best_checkpoint`, `steps_trained`, `wall_time_hours`, `gpu_hours`, `peak_vram_gb`, `cpu_util_pct`, `keep`, `discard_reason`, `notes`, `git_commit`, `start_time`, `end_time`, `phase`, `skill_used`, `rule_checks_passed`, `incidents`
-
-Appends are file-locked and atomic. Multiple workers can write concurrently without corruption. The registry is the ground truth for the dashboard and for the orchestrator's scheduling decisions.
-
-### 6. Project Journal, Incident Log, and Handoff Memory
-
-`logs/project_journal.md` is a human-readable running narrative of every significant decision, observation, and phase transition. It is written by agents and readable by humans at any time.
-
-`logs/incidents.md` tracks structured incident records: reward hacking detected, out-of-memory crash, training divergence, broken assumption, and rule violation. Each incident has a timestamp, severity, run ID, description, and resolution status.
-
-`logs/handoffs.md` enables multi-agent continuity. Before any agent session ends — whether that is a Claude Code session, a Codex run, or an overnight job — it writes a structured handoff: current phase, last experiment, open hypotheses, next planned action, and any caveats the next agent must know. The next agent reads the latest handoff entry before doing anything else.
-
-### 7. Live Localhost Dashboard
-
-The dashboard runs on port 8765 and requires no external web framework — it uses Python's standard library HTTP server with Server-Sent Events for live updates. Chart.js provides dark-theme charts in the browser.
+The dashboard runs on port 8765 using Python's standard library HTTP server with Server-Sent Events for live updates. No external web framework required. Chart.js provides dark-theme charts in the browser.
 
 The dashboard shows:
 
-- Training reward curves (all active and recent runs)
-- Evaluation curves with confidence intervals
-- GPU and CPU resource utilization over time
-- Experiment timeline (Gantt-style, parallel runs visible)
-- Top models table (sorted by eval reward, with hyperparams)
-- Open incidents with severity and resolution status
-- Next planned experiment (from orchestrator state)
-- Morning summary — generated after overnight runs, showing what happened, what to review, and what to do next
+- Training reward curves (all runs, per-experiment)
+- Evaluation curves with live updates
+- GPU and CPU resource utilization
+- Experiment timeline with keep/discard decisions
+- Top models leaderboard (sorted by eval reward)
+- Open incidents with severity
+- Next planned experiment from orchestrator state
 
-Start it with:
+### 6. Optional Parallel Background Experiments
 
-```bash
-drl-autoresearch dashboard &
-# open http://localhost:8765
-```
+The orchestrator manages multiple isolated experiment workers running concurrently. Each worker receives a dedicated GPU assignment (`CUDA_VISIBLE_DEVICES`), an explicit VRAM budget enforced before the run starts, and health monitoring for hangs and OOM kills. Parallelism is opt-in: `drl-autoresearch run --parallel N`.
 
-### 8. Optional Parallel Background Experiments
+### 7. Claude Code Slash Commands
 
-The orchestrator can manage multiple isolated experiment workers running concurrently. Each worker receives:
-
-- A dedicated GPU assignment (`CUDA_VISIBLE_DEVICES`)
-- An explicit VRAM budget enforced before the run starts
-- Health monitoring — the orchestrator detects hangs, OOM kills, and divergence
-- Kill, pause, and resume support via `drl-autoresearch status` and signals
-
-The orchestrator refuses to schedule a new worker if doing so would oversubscribe detected GPU memory. Parallelism is opt-in: `drl-autoresearch run --parallel N`.
-
-### 9. Overnight Nonstop Training
-
-The system is designed to run for 8 or more hours without human intervention:
-
-- Checkpointing at configurable intervals with crash-safe atomic writes
-- Automatic resume from the latest valid checkpoint on restart
-- Durable structured logs (append-only, never overwritten)
-- Periodic evaluation runs at configurable step intervals
-- Incident detection with automatic severity classification
-- Morning summary generated at a configurable wall-clock time, consolidating all overnight activity into a single readable report
-
-If an experiment crashes, the orchestrator logs the incident, attempts a resume if the failure is recoverable, and moves to the next experiment if it is not.
-
-### 10. Claude Code Slash Commands
-
-Five built-in commands are available after cloning the repo (they live in `.claude/commands/`):
+Five built-in commands live in `.claude/commands/` and are available in any Claude Code session opened from inside this repo:
 
 | Command | Description |
 |---------|-------------|
-| `/drl-init` | Onboard and scaffold a new DRL project interactively |
+| `/drl-init` | Scaffold a new DRL project interactively |
 | `/drl-run` | Start the autonomous overnight experiment loop |
-| `/drl-diagnose` | Diagnose a failure or confusing result using the skill pack |
+| `/drl-diagnose` | Diagnose a failure or confusing result |
 | `/drl-research` | Trigger a mid-training research refresh |
 | `/drl-plan` | Review and update the current experiment plan |
 
@@ -164,148 +116,230 @@ Five built-in commands are available after cloning the repo (they live in `.clau
 
 - Python 3.10 or later
 - Linux (primary support; macOS has partial support)
-- NVIDIA GPU recommended — CPU fallback is available but slow
-- `uv` or `pip`
+- NVIDIA GPU recommended — CPU fallback available but slow
+- `uv` (recommended) or `pip`
 
 ### Install from Source
 
 ```bash
-git clone https://github.com/your-org/autoresearch-RL
+git clone https://github.com/Ian747-tw/autoresearch-RL
 cd autoresearch-RL
-pip install -e .
-# or with uv:
+
+# with uv (recommended):
 uv pip install -e .
+
+# or with pip:
+pip install -e .
+
 # verify:
 drl-autoresearch --version
+```
+
+### Without Installing (uv run)
+
+If you don't want to install the package globally, every command works via `uv run`:
+
+```bash
+uv run python -m drl_autoresearch <command>
+# e.g.:
+uv run python -m drl_autoresearch doctor
+uv run python -m drl_autoresearch dashboard --port 8765
 ```
 
 ### Optional Extras
 
 ```bash
-pip install -e ".[dashboard]"   # adds aiohttp for a faster dashboard server
-pip install -e ".[tui]"         # adds questionary for an enhanced onboarding TUI
-pip install -e ".[full]"        # both dashboard and tui extras
+pip install -e ".[tui]"        # adds questionary for the interactive onboarding TUI
+pip install -e ".[full]"       # tui + aiohttp extras
 ```
 
-The base install has zero non-stdlib runtime dependencies. The extras are genuinely optional.
+The base install has zero non-stdlib runtime dependencies.
 
 ---
 
 ## Quickstart
 
 ```bash
-# 1. Go to your DRL project
+# 1. Clone and install
+git clone https://github.com/Ian747-tw/autoresearch-RL
+cd autoresearch-RL
+pip install -e .
+
+# 2. Go to your DRL project (or stay in autoresearch-RL to test)
 cd ~/my-rl-project
 
-# 2. Initialize — runs onboarding, scaffolds all files
+# 3. Initialize — scaffolds all config files
 drl-autoresearch init
 
-# 3. Verify environment — checks GPU, Python env, and config
+# 4. Verify environment — checks GPU, Python, and config
 drl-autoresearch doctor
 
-# 4. Start the live dashboard (optional — opens http://localhost:8765)
+# 5. Start the live dashboard in the background
 drl-autoresearch dashboard &
+# open http://localhost:8765
 
-# 5. Start the autonomous research loop
+# 6. Run a dry-run first to validate the plan
+drl-autoresearch run --dry-run
+
+# 7. Start the autonomous research loop
 drl-autoresearch run
 ```
 
-After `init`, open `CLAUDE.md` to review the generated agent operating guide, and `NON_NEGOTIABLE_RULES.md` to review or edit your hard rules before the first run.
+### Test with the Included Training Script
 
----
-
-## Claude Code Integration
-
-After cloning the repo, the `.claude/commands/` directory contains the five DRL slash commands. They are available immediately in any Claude Code session opened from inside `autoresearch-RL`, and can be copied into any target project's `.claude/commands/` directory.
-
-```
-# In Claude Code, after installing the plugin:
-
-/drl-init       # Set up a new DRL project interactively
-/drl-run        # Start the autonomous overnight experiment loop
-/drl-diagnose   # Diagnose a failure or confusing result
-/drl-plan       # Review and update the experiment plan
-/drl-research   # Trigger a mid-training research refresh
-```
-
-**How it fits together:**
-
-- Running `/drl-init` in your target project calls `drl-autoresearch init`, generates `CLAUDE.md` with project-specific agent operating instructions, and scaffolds all logs and skills directories.
-- The PolicyEngine checks are integrated into the run loop. When the agent proposes an action, `drl-autoresearch check` is called automatically. The agent cannot proceed past a `BLOCKED` result.
-- The dashboard can be started in the background (`drl-autoresearch dashboard &`) while Claude Code runs experiments. The dashboard reads the same log files the agent writes to — no separate data pipeline.
-- `CLAUDE.md` is regenerated each time `drl-autoresearch init` is re-run with updated project state. You can also edit it manually; the system will not overwrite manual edits unless you pass `--force`.
-
----
-
-## Codex / OpenAI Integration
-
-DRL AutoResearch generates an `AGENT.md` in your project root that serves as the primary guidance file for Codex and other OpenAI-based coding assistants. All CLI commands work independently of which AI tool is running experiments — the shared core (orchestrator, policy engine, logs) is identical for Claude Code and Codex sessions.
+A self-contained CartPole training harness is included for testing the full pipeline end-to-end:
 
 ```bash
-# AGENT.md is generated in your project root and serves as Codex instructions.
-# Point Codex at: AGENT.md, CLAUDE.md, IMPLEMENTATION_PLAN.md
+# Runs 3 REINFORCE experiments and writes all data to the dashboard
+python test_train.py --updates 50
 
-# Run the orchestrator to decide what experiment to run next:
-drl-autoresearch plan --project-dir .
-
-# Check if a planned action is allowed before executing it:
-drl-autoresearch check --action edit_reward --details '{"file": "reward.py"}'
-
-# After an experiment completes, log the result:
-# Append a row to logs/experiment_registry.tsv (format described in AGENT.md)
-
-# Trigger a mid-training research refresh:
-drl-autoresearch research --project-dir .
+# Fewer updates for a quick smoke test (~10s)
+python test_train.py --updates 5
 ```
 
-`AGENT.md` describes the full experiment registry format, the incident reporting protocol, the handoff writing standard, and the expected behavior at each research phase. A Codex agent reading `AGENT.md` has enough context to participate in a multi-session research campaign without losing continuity.
+The script implements CartPole-v1 physics from scratch — no `gymnasium` dependency required. It writes training curves, eval curves, and registry entries in the exact format the dashboard expects, so you can see the full picture immediately.
+
+---
+
+## Claude Code Setup
+
+After cloning the repo, the `.claude/commands/` directory contains five DRL slash commands that are available immediately in any Claude Code session opened from inside `autoresearch-RL`.
+
+### Step 1 — Open the project in Claude Code
+
+```bash
+cd autoresearch-RL
+claude  # opens Claude Code in this directory
+```
+
+### Step 2 — Initialize your DRL project
+
+```
+/drl-init
+```
+
+This runs `drl-autoresearch init`, scaffolds all config files, and writes `NON_NEGOTIABLE_RULES.md`. Claude Code will walk you through the setup interactively.
+
+### Step 3 — Verify and start
+
+```
+/drl-run
+```
+
+The agent checks the environment (`doctor`), reviews the plan, and starts the experiment loop. It checks every proposed action against `NON_NEGOTIABLE_RULES.md` before executing.
+
+### Available slash commands
+
+```
+/drl-init       — Scaffold config, initialize state, set permission mode
+/drl-run        — Start autonomous experiment loop (plan → run → log → repeat)
+/drl-diagnose   — Diagnose a training failure using the skill playbooks
+/drl-plan       — Review and refresh the current ranked experiment plan
+/drl-research   — Trigger a mid-training literature/implementation refresh
+```
+
+### Copy commands to your own project
+
+```bash
+cp -r .claude/commands/ ~/my-rl-project/.claude/commands/
+```
+
+The commands will then be available in Claude Code sessions opened from `~/my-rl-project`.
+
+---
+
+## Codex Setup
+
+All CLI commands work with Codex exactly as with Claude Code — the shared core (orchestrator, policy engine, logs) is agent-agnostic.
+
+### Step 1 — Install the Codex CLI
+
+```bash
+npm install -g @openai/codex
+# set your API key:
+export OPENAI_API_KEY=sk-...
+```
+
+### Step 2 — Run non-interactively
+
+Codex's default sandbox uses `bwrap` which requires unprivileged user namespaces. On some Linux systems (containers, restricted VMs) this is not available. Use `--dangerously-bypass-approvals-and-sandbox` to skip it:
+
+```bash
+codex exec --dangerously-bypass-approvals-and-sandbox \
+  -c 'shell_environment_policy.inherit=all' \
+  "Run drl-autoresearch doctor, then run test_train.py --updates 50 from /path/to/autoresearch-RL, and report the output."
+```
+
+### Step 3 — Multi-step research session
+
+```bash
+codex exec --dangerously-bypass-approvals-and-sandbox \
+  -c 'shell_environment_policy.inherit=all' \
+  "You are running a DRL AutoResearch session in /path/to/my-rl-project.
+
+  1. Run: drl-autoresearch doctor
+  2. Run: drl-autoresearch plan
+  3. Run: drl-autoresearch run --dry-run
+  4. If all checks pass, run: drl-autoresearch run --parallel 2
+  5. After completion, run: drl-autoresearch status
+  
+  Check every proposed code change against drl-autoresearch check before executing it.
+  Report the output of each step."
+```
+
+### Interactive Codex session
+
+```bash
+cd autoresearch-RL
+codex  # opens interactive session; Codex will read AGENT.md if present
+```
 
 ---
 
 ## Project Scaffold Structure
 
-After running `drl-autoresearch init` in your DRL project, the following files and directories are created:
+After `drl-autoresearch init`, the following files are created inside your project:
 
 ```
 your-drl-project/
 ├── .drl_autoresearch/
-│   ├── state.json          ← live project state (phase, active runs, counters)
-│   ├── policy.yaml         ← permission policy and rule overrides
+│   ├── state.json          ← live project state (phase, best run, counters)
+│   ├── policy.yaml         ← permission policy and action overrides
 │   ├── hardware.yaml       ← auto-detected hardware configuration
 │   ├── python_env.yaml     ← Python environment and package manager config
 │   └── permissions.yaml    ← current permission mode
 │
-├── CLAUDE.md               ← agent operating guide (auto-generated, project-specific)
-├── AGENT.md                ← agent behavior standard (Codex / general AI)
-├── ORCHESTRATOR.md         ← orchestrator decision logic and phase definitions
-├── USER_SPEC.md            ← clarified project specification from onboarding
 ├── NON_NEGOTIABLE_RULES.md ← hard rules enforced by PolicyEngine
-├── IMPLEMENTATION_PLAN.md  ← current research plan with ranked hypotheses
 │
-├── skills/
-│   ├── investigate.md
-│   ├── reward_shaping.md
-│   ├── exploration.md
-│   ├── env_diagnostics.md
-│   ├── ablation.md
-│   ├── checkpoint_selection.md
-│   ├── compute_budgeting.md
-│   └── mid_training_research.md
+├── skills/                 ← agent playbooks (add your own .md files here)
 │
 └── logs/
-    ├── experiment_registry.tsv
-    ├── project_journal.md
-    ├── incidents.md
-    ├── handoffs.md
+    ├── experiment_registry.tsv   ← 27-column run history (append-only)
     └── runs/
         └── <run_id>/
-            ├── config.yaml
-            ├── stdout.log
-            ├── metrics.jsonl
-            └── checkpoints/
+            ├── run_meta.json     ← run parameters and git state
+            ├── run_result.json   ← final metrics and outcome
+            ├── metrics.jsonl     ← per-step metric stream
+            └── checkpoints/      ← checkpoint metadata (max 3 per run)
 ```
 
 The scaffold does not touch your existing source files. Everything is additive.
+
+### Artifact files for dashboard curves
+
+The dashboard reads full training curves from `logs/artifacts/<run_id>/metrics.json`. Write this file from your training script to populate the charts:
+
+```json
+{
+  "steps":        [100, 200, 300, ...],
+  "rewards":      [12.3, 18.7, 24.1, ...],
+  "losses":       [0.42, 0.38, 0.31, ...],
+  "eval_steps":   [500, 1000, ...],
+  "eval_rewards": [22.5, 31.0, ...]
+}
+```
+
+See `test_train.py` for a complete working example.
 
 ---
 
@@ -313,121 +347,116 @@ The scaffold does not touch your existing source files. Everything is additive.
 
 ```
 drl-autoresearch install
-    Install plugin dependencies into the current environment.
+    Print install confirmation and quick-start tips.
 
-drl-autoresearch init [--project-dir DIR] [--skip-onboarding] [--auto] [--force]
-    Run onboarding TUI and scaffold project files.
-    --skip-onboarding   Use all defaults, skip interactive questions.
-    --auto              Fully non-interactive; suitable for CI.
-    --force             Regenerate CLAUDE.md and AGENT.md even if manually edited.
+drl-autoresearch init [--project-dir DIR] [--skip-onboarding] [--auto]
+    Scaffold project files: .drl_autoresearch/, NON_NEGOTIABLE_RULES.md,
+    logs/experiment_registry.tsv, skills/.
+    --skip-onboarding   Skip the interactive questionnaire, use defaults.
+    --auto              Fully non-interactive; implies --skip-onboarding.
 
 drl-autoresearch doctor [--project-dir DIR]
-    Check GPU availability, Python environment, config validity, and log writability.
-    Prints a pass/warn/fail summary for each check.
+    Run 14 health checks: Python version, PyTorch, GPU/CUDA, NumPy, pandas,
+    config files, state.json, registry, rules file, skills directory.
+    Prints pass/fail for each check. Exits 0 only if all pass.
 
 drl-autoresearch dashboard [--project-dir DIR] [--port PORT]
-    Start the live dashboard HTTP server.
-    Default port: 8765. Reads logs from --project-dir (default: current directory).
+    Start the live dashboard HTTP server (stdlib-only, no external framework).
+    Default port: 8765. Open http://localhost:8765 in any browser.
 
 drl-autoresearch run [--project-dir DIR] [--parallel N] [--dry-run]
     Start the autonomous experiment loop.
     --parallel N    Run up to N experiments concurrently (default: 1).
-    --dry-run       Plan and print the next experiment without executing it.
+    --dry-run       Print what would run without executing. Safe to use anytime.
 
 drl-autoresearch status [--project-dir DIR]
-    Show current phase, active workers, recent results, and open incidents.
+    Show current phase, run counters, best run, recent experiments, active workers.
 
 drl-autoresearch plan [--project-dir DIR] [--refresh]
-    Print the current experiment plan from IMPLEMENTATION_PLAN.md.
-    --refresh   Trigger a research refresh and update the plan before printing.
+    Display the ranked experiment plan from .drl_autoresearch/plan.json.
+    --refresh   Regenerate the plan from the latest state before displaying.
 
 drl-autoresearch research [--project-dir DIR]
-    Trigger a mid-training research refresh using the mid_training_research.md skill.
+    Trigger a mid-training research refresh.
 
 drl-autoresearch check --action ACTION [--details JSON] [--project-dir DIR]
     Check whether an action is permitted under the current policy.
-    Returns: ALLOWED | CONFIRM_REQUIRED | BLOCKED
-    Exits 0 for ALLOWED, 1 for BLOCKED, 2 for CONFIRM_REQUIRED.
-    --action    Action type string (e.g. edit_reward, install_package, delete_checkpoint).
-    --details   Optional JSON string with action-specific context.
+    Exits 0 (ALLOWED) or 1 (BLOCKED).
+    --action    Action type: edit_reward | edit_eval | edit_env | install_package |
+                update_package | global_install | exceed_compute | gpu_memory_risk |
+                silent_cpu_fallback | eval_protocol_change | use_privileged_info | custom
+    --details   Optional JSON with action context, e.g. '{"phase": "init"}'.
 ```
 
 ---
 
 ## Permission Modes
 
-Set in `.drl_autoresearch/permissions.yaml` during onboarding or updated manually.
+Set in `.drl_autoresearch/permissions.yaml` during init or updated manually.
 
 | Mode | Description | Use case |
 |------|-------------|----------|
-| `locked` | Nothing changes without explicit human approval for each action | Sensitive production codebases, shared research environments |
-| `prompted` | Ask before each install or file change; allow reads freely | **Default** — research projects where you want visibility |
-| `bootstrap-only` | Allow installs during `init` only; lock down afterward | After initial setup on a shared machine |
+| `locked` | All sensitive actions require explicit human approval | **Default** — shared machines, sensitive codebases |
+| `prompted` | Ask before each install or file change; allow reads freely | Research projects where you want visibility |
+| `bootstrap-only` | Installs allowed during `init` only; lock down afterward | After initial setup on a shared machine |
 | `open` | Allow all actions; fully autonomous operation | Dedicated overnight research sessions |
-| `project-only` | Installs and changes restricted to the project's own virtualenv | Shared machines where system packages must not be touched |
+| `project-only` | Installs and changes restricted to the project's virtualenv | Shared machines where system packages must not be touched |
 
-Change the mode at any time:
+Change the mode by editing `.drl_autoresearch/permissions.yaml`:
 
-```bash
-# Edit .drl_autoresearch/permissions.yaml directly, or re-run init:
-drl-autoresearch init --project-dir . --skip-onboarding
+```yaml
+mode: open   # or: locked | prompted | bootstrap-only | project-only
 ```
 
 ---
 
 ## Design Principles
 
-These principles were inherited from the original AutoResearch workflow and are maintained without compromise:
+**Lightweight.** A single installable package. No services, no databases, no cloud accounts. `pip install -e .` and you are done.
 
-**Lightweight.** A single installable package. No services to run, no databases to configure, no cloud accounts required. `pip install -e .` and you are done.
+**Repo-native.** All state lives inside the target project as plain files. The project is self-contained. You can `git add logs/` to version-control your research history, or `.gitignore` it.
 
-**Repo-native.** All state — project config, experiment registry, journal, incidents, handoffs, checkpoints index — lives inside the target project as plain files. The project is self-contained. You can `git add logs/` to version-control your research history, or `.gitignore` it. Your choice.
+**Markdown-guided.** `NON_NEGOTIABLE_RULES.md` and the `skills/` playbooks are the interface between the system and the agent. They are human-readable and human-editable. Changing agent behavior means editing a markdown file, not touching Python internals.
 
-**Markdown-guided.** `CLAUDE.md`, `AGENT.md`, and the `skills/*.md` playbooks are the interface between the system and the agent. They are human-readable and human-editable. Changing agent behavior means editing a markdown file, not touching Python internals.
+**Autonomous but controlled.** Hard rules are enforced, not suggested. The PolicyEngine does not print a warning and continue — it blocks. The system is designed to be left running overnight with confidence that it will not install arbitrary packages or violate your stated constraints.
 
-**Autonomous but controlled.** Hard rules are enforced, not suggested. The PolicyEngine does not print a warning and continue — it blocks. The system is designed to be left running overnight with confidence that it will not delete checkpoints, overwrite baselines, install arbitrary system packages, or run experiments that violate your stated constraints.
-
-**Fast iteration.** The experiment loop is the core product. Everything else — the dashboard, the TUI, the CLI, the skill pack — exists to make the loop faster, safer, and easier to understand after the fact. There is no overhead that does not pay for itself within the first overnight run.
+**Fast iteration.** The experiment loop is the core product. Everything else — the dashboard, the TUI, the CLI — exists to make the loop faster, safer, and easier to understand after the fact.
 
 ---
 
-## FAQ / Gotchas
+## FAQ
 
 **Q: Does this replace the original `program.md` / `train.py` workflow?**
 
-No. It extends it. The original AutoResearch loop — edit `program.md`, run `train.py`, read results, repeat — still works exactly as before. DRL AutoResearch adds a structured scaffold on top: orchestration, policy enforcement, DRL-specific skills, and durable logging. You can adopt it incrementally.
+No. It extends it. The original AutoResearch loop still works exactly as before. DRL AutoResearch adds a structured scaffold on top: orchestration, policy enforcement, and durable logging. You can adopt it incrementally.
 
 **Q: Can I use this with non-DRL ML projects?**
 
-Yes. The core loop — orchestrator, policy engine, experiment registry, journal — is general. The DRL skills are just markdown files in `skills/`. You can add project-specific skills, remove the DRL-specific ones, or replace them entirely. The system does not hardcode any DRL assumptions outside of the skill pack and the onboarding questionnaire.
+Yes. The orchestrator, policy engine, and experiment registry are general. The DRL skills are just markdown files in `skills/`. Add your own playbooks, remove the DRL-specific ones, or replace them entirely.
 
 **Q: What happens if an agent tries to violate a hard rule?**
 
-`drl-autoresearch check` returns `BLOCKED`, exits with code 1, and prints a clear message identifying the specific rule that was violated. The violation is also appended to `logs/incidents.md` with a timestamp and the action that was attempted. The agent must stop or choose a different experiment. In `prompted` mode, the human can override a block interactively. In `locked` mode, overrides are not possible.
+`drl-autoresearch check` exits 1 and prints which rule was violated. The agent must stop or choose a different action. The violation is appended to `.drl_autoresearch/policy_audit.log`.
 
 **Q: Is the dashboard required?**
 
-No. It is entirely optional. All state is in files — `logs/project_journal.md` is a readable narrative of everything that happened, and `logs/experiment_registry.tsv` is a spreadsheet-importable record of every run. The dashboard is a convenience layer, not a dependency.
+No. All state is in files — `logs/experiment_registry.tsv` is spreadsheet-importable. The dashboard is a convenience layer, not a dependency.
 
 **Q: Can multiple AI agents work on the same project?**
 
-Yes — that is the explicit purpose of `logs/handoffs.md`. Before any agent session ends, the agent writes a structured handoff entry: current phase, last experiment result, open hypotheses, next planned action, and any caveats the next agent must be aware of. The next agent reads the latest entry before doing anything. This enables a Claude Code session to hand off to an overnight Codex job and back again without losing context.
-
-**Q: How do I add a custom hard rule?**
-
-Edit `NON_NEGOTIABLE_RULES.md` in your project. Rules are matched by the PolicyEngine using the action type strings documented in `ORCHESTRATOR.md`. You can add rules in plain English — the policy file supports both structured YAML rules and free-text rules that the agent is expected to interpret. Structured rules are checked programmatically; free-text rules are included in the context given to the agent before each action.
+Yes. Claude Code and Codex share the same log files, state, and policy. One agent can initialize and run experiments; another can pick up where it left off by reading `state.json` and the registry.
 
 **Q: What if a run crashes mid-training?**
 
-The incident is logged to `logs/incidents.md` with the run ID, failure type, and last checkpoint path. On the next `drl-autoresearch run` invocation, the orchestrator reads the incident log and decides whether to resume (recoverable crash) or skip to the next experiment (unrecoverable). You can inspect and manually resolve open incidents with `drl-autoresearch status`.
+The RunManager logs the incident. On the next `drl-autoresearch run`, the orchestrator reads the registry and decides whether to retry or skip. You can inspect the state with `drl-autoresearch status`.
 
 ---
 
 ## Contributing
 
-The skills pack is the easiest place to contribute. If you have a DRL failure mode that is not covered by the existing eight playbooks, add a markdown file to `skills/` following the format in any existing skill. Pull requests adding new skills are welcome without requiring changes to any Python code.
+The skills pack is the easiest place to contribute. If you have a DRL failure mode that is not covered, add a markdown file to `skills/`. Pull requests adding new skills are welcome without requiring changes to any Python code.
 
-For bugs in the orchestrator, policy engine, or CLI, open an issue with the output of `drl-autoresearch doctor` and the relevant section of `logs/incidents.md`.
+For bugs in the orchestrator, policy engine, or CLI, open an issue with the output of `drl-autoresearch doctor` and a description of the failure.
 
 ---
 
