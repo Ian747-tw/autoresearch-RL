@@ -18,6 +18,7 @@ import concurrent.futures
 import csv
 import json
 import os
+import shutil
 import signal
 import sys
 import traceback
@@ -27,7 +28,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from drl_autoresearch.cli import console
+from drl_autoresearch.core.orchestrator import Orchestrator
 from drl_autoresearch.core.state import ProjectState, VALID_PHASES
+from drl_autoresearch.logging.journal import ProjectJournal
 
 
 # ---------------------------------------------------------------------------
@@ -44,6 +47,10 @@ _REGISTRY_COLUMNS = [
     "status",
     "notes",
 ]
+_WORKFLOW_METADATA = ".drl_autoresearch/skill_pack.json"
+_BUILD_PLAN_DIR = "implementation_plan"
+_PLAN_FILE = ".drl_autoresearch/plan.json"
+_REFRESH_COOLDOWN_RUNS = 3
 
 
 def _registry_path(project_dir: Path) -> Path:
@@ -64,21 +71,52 @@ def _append_registry(
     path = _registry_path(project_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    write_header = not path.exists()
-    with path.open("a", newline="", encoding="utf-8") as fh:
-        writer = csv.writer(fh, delimiter="\t")
-        if write_header:
+    timestamp = datetime.now(timezone.utc).isoformat()
+
+    if not path.exists():
+        with path.open("a", newline="", encoding="utf-8") as fh:
+            writer = csv.writer(fh, delimiter="\t")
             writer.writerow(_REGISTRY_COLUMNS)
-        writer.writerow([
-            run_id,
-            datetime.now(timezone.utc).isoformat(),
-            hypothesis,
-            json.dumps(params),
-            metric_name,
-            "" if metric_value is None else metric_value,
-            status,
-            notes,
-        ])
+            writer.writerow([
+                run_id,
+                timestamp,
+                hypothesis,
+                json.dumps(params),
+                metric_name,
+                "" if metric_value is None else metric_value,
+                status,
+                notes,
+            ])
+        return
+
+    header_line = path.read_text(encoding="utf-8").splitlines()[0]
+    header = header_line.split("\t")
+
+    row = {col: "" for col in header}
+    row["run_id"] = run_id
+    row["timestamp"] = timestamp
+    row["hypothesis"] = hypothesis
+    row["params_json"] = json.dumps(params)
+    row["metric_name"] = metric_name
+    row["metric_value"] = "" if metric_value is None else str(metric_value)
+    row["status"] = status
+    row["notes"] = notes
+
+    # Compatible mapping for the original 27-column DRL registry schema.
+    if "custom_metric_name" in row:
+        row["custom_metric_name"] = metric_name
+    if "custom_metric_value" in row:
+        row["custom_metric_value"] = "" if metric_value is None else str(metric_value)
+    if "eval_reward_mean" in row and metric_name == "reward":
+        row["eval_reward_mean"] = "" if metric_value is None else str(metric_value)
+    if "seed_count" in row:
+        row["seed_count"] = row["seed_count"] or "1"
+
+    with path.open("a", newline="", encoding="utf-8") as fh:
+        writer = csv.DictWriter(
+            fh, fieldnames=header, delimiter="\t", extrasaction="ignore"
+        )
+        writer.writerow(row)
 
 
 # ---------------------------------------------------------------------------
@@ -235,6 +273,307 @@ def _generate_baseline_experiments() -> List[Dict[str, Any]]:
     ]
 
 
+def _normalize_orchestrator_experiment(
+    exp: Dict[str, Any],
+    state: ProjectState,
+) -> Dict[str, Any]:
+    """Adapt orchestrator experiment schema to the run executor schema."""
+    return {
+        "run_id": exp.get("run_id", str(uuid.uuid4())),
+        "hypothesis": exp.get("hypothesis", "orchestrator_generated"),
+        "params": exp.get("params", {}),
+        "metric_name": exp.get("metric_name", state.best_metric_name or "reward"),
+        "skill": exp.get("skill"),
+    }
+
+
+def _load_project_mode(project_dir: Path, state: ProjectState) -> str:
+    mode = state.flags.get("project_mode")
+    if mode in ("build", "improve"):
+        return mode
+
+    meta_path = project_dir / _WORKFLOW_METADATA
+    if meta_path.exists():
+        try:
+            data = json.loads(meta_path.read_text(encoding="utf-8"))
+            mode = data.get("project_mode")
+            if mode in ("build", "improve"):
+                return mode
+        except (OSError, json.JSONDecodeError):
+            pass
+
+    return "improve"
+
+
+def _load_onboarding_context(project_dir: Path) -> Dict[str, Any]:
+    config_dir = project_dir / ".drl_autoresearch"
+    yaml_path = config_dir / "onboarding.yaml"
+    json_path = config_dir / "onboarding.json"
+
+    if yaml_path.exists():
+        try:
+            import yaml  # type: ignore
+
+            data = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                return data
+        except Exception:  # noqa: BLE001
+            pass
+
+    if json_path.exists():
+        try:
+            data = json.loads(json_path.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                return data
+        except (OSError, json.JSONDecodeError):
+            pass
+
+    return {}
+
+
+def _write_compact_build_plan_folder(project_dir: Path, state: ProjectState) -> Path:
+    plan_dir = project_dir / _BUILD_PLAN_DIR
+    plan_dir.mkdir(parents=True, exist_ok=True)
+
+    ob = _load_onboarding_context(project_dir)
+    project = ob.get("project", {}) if isinstance(ob.get("project", {}), dict) else {}
+    hard_rules = ob.get("hard_rules", [])
+    if not isinstance(hard_rules, list):
+        hard_rules = []
+    rules = [str(r) for r in hard_rules if str(r).strip() and str(r).strip().lower() != "none"]
+    rules_block = "\n".join(f"- {r}" for r in rules[:6]) or "- Follow NON_NEGOTIABLE_RULES.md strictly."
+
+    env = project.get("env") or "unspecified"
+    objective = project.get("objective") or "maximize task success metric"
+    success_metric = project.get("success_metric") or state.best_metric_name or "reward"
+
+    files = {
+        "01_research.md": (
+            "# Step 1 — Research Framing\n\n"
+            f"- Environment/domain: {env}\n"
+            f"- Objective: {objective}\n"
+            f"- Success metric: {success_metric}\n"
+            "- Run deep research to identify 3-5 promising design directions.\n"
+            "- Keep only high-signal findings linked to expected training impact.\n"
+            "- Reject ideas that violate hard rules or budget constraints.\n"
+        ),
+        "02_system_design.md": (
+            "# Step 2 — System Design\n\n"
+            "- Choose a compact baseline architecture and algorithm family.\n"
+            "- Define reward shaping policy with anti-hacking checks.\n"
+            "- Define feature/observation design with minimal complexity.\n"
+            "- Keep changes incremental and testable.\n"
+        ),
+        "03_training_plan.md": (
+            "# Step 3 — Build and Training Plan\n\n"
+            "- Build minimal runnable training pipeline first.\n"
+            "- Validate one clean baseline run before wider sweeps.\n"
+            "- Use short probe runs for risky hypotheses.\n"
+            "- Promote only improvements measured by eval metric.\n"
+        ),
+        "04_rules_and_risks.md": (
+            "# Step 4 — Rules and Risk Controls\n\n"
+            "Hard rules to enforce:\n"
+            f"{rules_block}\n\n"
+            "- Any redesign must pass policy checks before execution.\n"
+            "- If stuck for long, trigger research refresh and adjust plan.\n"
+            "- Keep documentation compact to avoid token waste.\n"
+        ),
+    }
+
+    for filename, content in files.items():
+        path = plan_dir / filename
+        if not path.exists():
+            path.write_text(content, encoding="utf-8")
+
+    return plan_dir
+
+
+def _trigger_research_and_plan_refresh(project_dir: Path, reason: str, dry_run: bool) -> bool:
+    if dry_run:
+        console(
+            f"Dry-run: would trigger deep research + plan refresh ({reason}).",
+            "info",
+        )
+        return False
+
+    from drl_autoresearch.core import plan as plan_mod
+    from drl_autoresearch.core import research as research_mod
+
+    plan_path = project_dir / _PLAN_FILE
+    if not plan_path.exists():
+        plan_mod.run(project_dir=project_dir, refresh=True)
+    rc = research_mod.run(project_dir=project_dir)
+    return rc == 0
+
+
+def _recent_stuck_signal(project_dir: Path, window: int = 6) -> tuple[bool, str]:
+    path = _registry_path(project_dir)
+    if not path.exists():
+        return False, ""
+
+    rows: List[Dict[str, str]] = []
+    try:
+        with path.open("r", newline="", encoding="utf-8") as fh:
+            reader = csv.DictReader(fh, delimiter="\t")
+            rows = [dict(r) for r in reader]
+    except OSError:
+        return False, ""
+
+    if not rows:
+        return False, ""
+
+    recent = rows[-window:]
+    failure_count = sum(1 for r in recent if r.get("status") in {"crashed", "discarded", "pending_skill"})
+    if failure_count >= max(3, window // 2):
+        return True, "repeated_failures"
+
+    completed = [r for r in rows if r.get("status") == "completed" and r.get("metric_value")]
+    if len(completed) < window + 1:
+        return False, ""
+
+    prev = completed[:-window]
+    curr = completed[-window:]
+    try:
+        prev_best = max(float(r["metric_value"]) for r in prev)
+        curr_best = max(float(r["metric_value"]) for r in curr)
+    except (ValueError, KeyError):
+        return False, ""
+
+    if curr_best <= prev_best:
+        return True, "no_progress"
+
+    return False, ""
+
+
+def _prepare_build_mode(
+    project_dir: Path,
+    state: ProjectState,
+    dry_run: bool,
+) -> None:
+    if state.flags.get("build_bootstrap_complete", False):
+        return
+    if state.flags.get("build_bootstrap_started", False):
+        return
+
+    console(
+        "Build mode active: running compact research/bootstrap workflow before training loop.",
+        "info",
+    )
+
+    plan_dir = _write_compact_build_plan_folder(project_dir, state)
+    refreshed = _trigger_research_and_plan_refresh(
+        project_dir=project_dir,
+        reason="build_mode_bootstrap",
+        dry_run=dry_run,
+    )
+
+    state.flags["build_bootstrap_started"] = True
+    state.flags["build_bootstrap_research_applied"] = bool(refreshed)
+    if dry_run:
+        console(
+            f"Dry-run: compact build plan folder ready at `{plan_dir}`.",
+            "info",
+        )
+        return
+
+    journal = ProjectJournal(project_dir)
+    journal.initialize(project_name=state.project_name, spec={})
+    journal.log_event(
+        "build_mode_bootstrap",
+        (
+            f"Build mode bootstrap prepared in `{_BUILD_PLAN_DIR}/`.\n"
+            "Deep research and plan refresh completed before training loop."
+        ),
+        metadata={"research_refreshed": refreshed, "plan_folder": _BUILD_PLAN_DIR},
+    )
+
+
+def _maybe_refresh_when_stuck(
+    project_dir: Path,
+    state: ProjectState,
+    orchestrator: Optional[Orchestrator],
+    dry_run: bool,
+) -> None:
+    stuck, reason = (False, "")
+    if orchestrator is not None:
+        try:
+            stuck, reason = orchestrator.should_trigger_research_refresh()
+        except Exception:  # noqa: BLE001
+            stuck, reason = (False, "")
+    if not stuck:
+        stuck, reason = _recent_stuck_signal(project_dir)
+    if not stuck:
+        return
+
+    last_refresh_runs = int(state.flags.get("last_refresh_total_runs", -10_000))
+    if (state.total_runs - last_refresh_runs) < _REFRESH_COOLDOWN_RUNS:
+        console(
+            "Stuck signal detected but refresh cooldown is active; skipping refresh this run.",
+            "info",
+        )
+        return
+
+    console(
+        f"Stuck signal detected ({reason}); triggering research + redesign refresh.",
+        "warning",
+    )
+    refreshed = _trigger_research_and_plan_refresh(
+        project_dir=project_dir,
+        reason=reason,
+        dry_run=dry_run,
+    )
+    if dry_run:
+        return
+
+    state.flags["last_refresh_reason"] = reason
+    state.flags["last_refresh_total_runs"] = state.total_runs
+    journal = ProjectJournal(project_dir)
+    journal.initialize(project_name=state.project_name, spec={})
+    journal.log_event(
+        "stuck_refresh",
+        "No meaningful progress detected. Triggered compact research/plan refresh.",
+        metadata={"reason": reason, "refresh_applied": refreshed},
+    )
+
+
+def _finalize_build_mode_if_complete(
+    project_dir: Path,
+    state: ProjectState,
+    results: List[Dict[str, Any]],
+) -> None:
+    if state.flags.get("project_mode") != "build":
+        return
+    if state.flags.get("build_bootstrap_complete", False):
+        return
+
+    has_completed = any(r.get("status") == "completed" for r in results)
+    if not has_completed:
+        return
+
+    plan_dir = project_dir / _BUILD_PLAN_DIR
+    if plan_dir.exists():
+        shutil.rmtree(plan_dir)
+        console(f"Build plan folder removed: {_BUILD_PLAN_DIR}/", "info")
+
+    overview = (
+        f"Build bootstrap completed. Project transitioned to normal training loop.\n"
+        f"Phase: {state.current_phase}\n"
+        f"Best metric: {state.best_metric_name}={state.best_metric_value}\n"
+        "Implementation details are now tracked through logs and registry."
+    )
+
+    journal = ProjectJournal(project_dir)
+    journal.initialize(project_name=state.project_name, spec={})
+    journal.log_event(
+        "build_mode_completed",
+        overview,
+        metadata={"plan_folder_deleted": True},
+    )
+
+    state.flags["build_bootstrap_complete"] = True
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -266,7 +605,29 @@ def run(
         return 1
 
     state = ProjectState.load(project_dir)
-    console(f"Project: {state.project_name}  |  Phase: {state.current_phase}", "info")
+    orchestrator: Optional[Orchestrator] = None
+    try:
+        orchestrator = Orchestrator(project_dir)
+        orchestrator.load()
+    except Exception as exc:  # noqa: BLE001
+        console(f"Orchestrator unavailable, using local fallback: {exc}", "warning")
+
+    project_mode = _load_project_mode(project_dir, state)
+    state.flags["project_mode"] = project_mode
+    console(
+        f"Project: {state.project_name}  |  Phase: {state.current_phase}  |  Mode: {project_mode}",
+        "info",
+    )
+
+    if project_mode == "build":
+        _prepare_build_mode(project_dir=project_dir, state=state, dry_run=dry_run)
+
+    _maybe_refresh_when_stuck(
+        project_dir=project_dir,
+        state=state,
+        orchestrator=orchestrator,
+        dry_run=dry_run,
+    )
 
     if state.current_phase == "converged":
         console("Research loop has converged. No further experiments to run.", "info")
@@ -275,8 +636,14 @@ def run(
     # Populate queue from state or generate baseline.
     experiments = list(state.queue)
     if not experiments:
-        console("Queue is empty — generating baseline experiments.", "info")
-        experiments = _generate_baseline_experiments()
+        if orchestrator is not None:
+            next_exp = orchestrator.decide_next_experiment()
+            if next_exp is not None:
+                experiments = [_normalize_orchestrator_experiment(next_exp, state)]
+                console("Queue is empty — using orchestrator-selected experiment.", "info")
+        if not experiments:
+            console("Queue is empty — generating baseline experiments (fallback).", "info")
+            experiments = _generate_baseline_experiments()
 
     console(
         f"Experiments queued: {len(experiments)}  |  Parallel workers: {parallel}",
@@ -365,6 +732,8 @@ def run(
     advanced = _maybe_advance_phase(state)
     if advanced:
         console(f"Phase advanced to: {state.current_phase}", "info")
+
+    _finalize_build_mode_if_complete(project_dir=project_dir, state=state, results=results)
 
     state.save()
     console(

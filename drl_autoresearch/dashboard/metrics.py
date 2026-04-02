@@ -63,6 +63,7 @@ class DashboardData:
     recent_decisions: list  # [{timestamp, decision, reason}]
     next_experiment: Optional[dict]
     morning_summary: Optional[dict]
+    workflow: dict  # {project_mode, bootstrap_state, refresh_cooldown_remaining_runs, last_refresh_reason}
 
     def to_dict(self) -> dict:
         return {
@@ -87,6 +88,7 @@ class DashboardData:
             "recent_decisions": self.recent_decisions,
             "next_experiment": self.next_experiment,
             "morning_summary": self.morning_summary,
+            "workflow": self.workflow,
         }
 
 
@@ -147,6 +149,7 @@ class MetricsCollector:
             recent_decisions=self.collect_recent_decisions(),
             next_experiment=self._next_experiment(state),
             morning_summary=morning,
+            workflow=self._collect_workflow_state(state),
         )
 
     # ------------------------------------------------------------------
@@ -165,6 +168,35 @@ class MetricsCollector:
     def _next_experiment(self, state: dict) -> Optional[dict]:
         queue = state.get("queue", [])
         return queue[0] if queue else None
+
+    def _collect_workflow_state(self, state: dict) -> dict:
+        flags = state.get("flags", {})
+        if not isinstance(flags, dict):
+            flags = {}
+
+        total_runs = state.get("total_runs", 0)
+        try:
+            total_runs_i = int(total_runs)
+        except (TypeError, ValueError):
+            total_runs_i = 0
+
+        cooldown_window = 3
+        last_refresh_total_runs = flags.get("last_refresh_total_runs")
+        cooldown_remaining = 0
+        if isinstance(last_refresh_total_runs, int):
+            delta = total_runs_i - last_refresh_total_runs
+            cooldown_remaining = max(0, cooldown_window - delta)
+
+        return {
+            "project_mode": flags.get("project_mode", "improve"),
+            "build_bootstrap_started": bool(flags.get("build_bootstrap_started", False)),
+            "build_bootstrap_complete": bool(flags.get("build_bootstrap_complete", True)),
+            "build_bootstrap_research_applied": bool(
+                flags.get("build_bootstrap_research_applied", False)
+            ),
+            "refresh_cooldown_remaining_runs": cooldown_remaining,
+            "last_refresh_reason": flags.get("last_refresh_reason"),
+        }
 
     # ------------------------------------------------------------------
     # Training curves

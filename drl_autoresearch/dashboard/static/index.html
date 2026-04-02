@@ -272,6 +272,37 @@
     }
     .worker-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
 
+    /* ── Workflow panel ─────────────────────────────────────────── */
+    .workflow-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(120px, 1fr));
+      gap: 10px;
+      margin-top: 4px;
+    }
+    @media (max-width: 900px) {
+      .workflow-grid { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
+    }
+    .workflow-item {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 8px 10px;
+      background: rgba(255,255,255,0.01);
+    }
+    .workflow-k {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+    }
+    .workflow-v {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+      line-height: 1.25;
+      word-break: break-word;
+    }
+
     /* ── Morning summary ─────────────────────────────────────────── */
     #morning-section {
       display: none;
@@ -333,6 +364,29 @@
     <div class="header-right">
       <span>Last updated</span>
       <span id="last-updated">—</span>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════ WORKFLOW SNAPSHOT ═══════════════ -->
+  <div class="card">
+    <div class="card-title">Workflow Snapshot</div>
+    <div class="workflow-grid">
+      <div class="workflow-item">
+        <div class="workflow-k">Current Mode</div>
+        <div class="workflow-v" id="wf-mode">—</div>
+      </div>
+      <div class="workflow-item">
+        <div class="workflow-k">Bootstrap State</div>
+        <div class="workflow-v" id="wf-bootstrap">—</div>
+      </div>
+      <div class="workflow-item">
+        <div class="workflow-k">Refresh Cooldown</div>
+        <div class="workflow-v" id="wf-cooldown">—</div>
+      </div>
+      <div class="workflow-item">
+        <div class="workflow-k">Last Refresh Reason</div>
+        <div class="workflow-v" id="wf-last-reason">—</div>
+      </div>
     </div>
   </div>
 
@@ -665,6 +719,32 @@ function updateDashboard(data) {
 
   /* ── Morning summary ── */
   updateMorningSummary(data.morning_summary);
+
+  /* ── Workflow snapshot ── */
+  updateWorkflow(data.workflow);
+}
+
+function updateWorkflow(workflow) {
+  const wf = workflow || {};
+  const mode = safeVal(wf.project_mode, 'improve');
+  document.getElementById('wf-mode').textContent = mode;
+
+  const started = !!wf.build_bootstrap_started;
+  const complete = !!wf.build_bootstrap_complete;
+  let bootstrapState = 'not-applicable';
+  if (mode === 'build') {
+    if (!started) bootstrapState = 'pending';
+    else if (started && !complete) bootstrapState = 'in-progress';
+    else bootstrapState = 'complete';
+  }
+  document.getElementById('wf-bootstrap').textContent = bootstrapState;
+
+  const cooldown = Number(wf.refresh_cooldown_remaining_runs || 0);
+  document.getElementById('wf-cooldown').textContent =
+    cooldown > 0 ? `${cooldown} run(s) remaining` : 'ready';
+
+  document.getElementById('wf-last-reason').textContent =
+    safeVal(wf.last_refresh_reason, 'none');
 }
 
 /* ─── Eval history chart update ─── */

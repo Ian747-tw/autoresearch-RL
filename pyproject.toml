@@ -19,6 +19,9 @@ dependencies = [
 [project.scripts]
 drl-autoresearch = "drl_autoresearch.cli:main"
 
+[tool.setuptools.package-data]
+"drl_autoresearch" = ["plugins/**/*"]
+
 [project.optional-dependencies]
 dashboard = ["aiohttp>=3.9.0"]
 tui = ["questionary>=2.0.0"]

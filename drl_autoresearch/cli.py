@@ -105,10 +105,18 @@ def _cmd_install(args: argparse.Namespace) -> int:
 def _cmd_init(args: argparse.Namespace) -> int:
     project_dir = Path(args.project_dir).resolve()
     mod = _core_init()
+    plugin = getattr(args, "plugin", None)
+    if plugin == "none":
+        plugin = ""          # empty string = skip install but don't prompt
+    skill_pack = getattr(args, "skill_pack", None)
+    project_mode = getattr(args, "project_mode", None)
     return mod.run(
         project_dir=project_dir,
         skip_onboarding=args.skip_onboarding,
         auto=args.auto,
+        plugin=plugin,
+        skill_pack=skill_pack,
+        project_mode=project_mode,
     )
 
 
@@ -236,6 +244,40 @@ def _build_parser() -> argparse.ArgumentParser:
         help=(
             "Non-interactive mode: accept all defaults without prompting. "
             "Implies --skip-onboarding."
+        ),
+    )
+    p_init.add_argument(
+        "--plugin",
+        choices=["cc", "codex", "both", "none"],
+        default=None,
+        metavar="PLUGIN",
+        help=(
+            "AI agent plugin(s) to install: cc (Claude Code slash commands), "
+            "codex (AGENT.md), both, or none. "
+            "If omitted, prompts interactively (or installs both with --auto)."
+        ),
+    )
+    p_init.add_argument(
+        "--skill-pack",
+        choices=["drl", "custom"],
+        default=None,
+        metavar="PACK",
+        help=(
+            "Skill-pack mode: drl keeps the bundled DRL playbooks; "
+            "custom removes the bundled DRL playbooks and installs a compact "
+            "skill generator backend for building a domain-specific pack. "
+            "If omitted, prompts interactively when possible."
+        ),
+    )
+    p_init.add_argument(
+        "--project-mode",
+        choices=["build", "improve"],
+        default=None,
+        metavar="MODE",
+        help=(
+            "Project mode: build (empty/incomplete project, design from scratch) "
+            "or improve (existing working model, optimize and iterate). "
+            "If omitted, prompts interactively when possible."
         ),
     )
     p_init.set_defaults(func=_cmd_init)
