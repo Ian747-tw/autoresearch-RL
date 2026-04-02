@@ -9,10 +9,19 @@ overnight unattended runs.
 1. **Read `NON_NEGOTIABLE_RULES.md`** — memorize every rule. You will check
    against these before every code change.
 2. **Read `CLAUDE.md`** — understand the project structure and what you can/cannot modify.
-3. **Read `IMPLEMENTATION_PLAN.md`** — understand the current research direction.
-4. **Check state**: `drl-autoresearch status --project-dir .`
-5. **Check handoffs**: Read `logs/handoffs.md` for instructions from the previous agent.
-6. **Check incidents**: Read `logs/incidents.md` for any open issues.
+3. **Check state**: `drl-autoresearch status --project-dir .`
+4. **Token-saving context sync (mandatory, compact reads only)**:
+   - `tail -n 25 logs/experiment_registry.tsv`
+   - `tail -n 120 logs/project_journal.md`
+   - `tail -n 80 logs/handoffs.md`
+   - `tail -n 80 logs/incidents.md`
+5. **Read `IMPLEMENTATION_PLAN.md`** only if needed to resolve ambiguity from the compact sync.
+6. Write a compact session checkpoint (max 5 lines):
+   - phase/mode
+   - best run + metric
+   - latest 3 outcomes
+   - open incidents/handoff constraints
+   - next experiment intent
 
 If any CRITICAL incidents are open, do not start experiments. Report to user first.
 

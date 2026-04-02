@@ -93,7 +93,10 @@ def _install_cc(project_dir: Path) -> bool:
 
 def _install_codex(project_dir: Path) -> bool:
     """Copy bundled AGENT.md to <project>/AGENT.md."""
-    src = _PLUGINS_DIR / "codex" / "AGENT.md"
+    src = _PLUGINS_DIR / "codex" / "AGENT_TEMPLATE.md"
+    if not src.is_file():
+        # Backward compatibility for older local plugin bundles.
+        src = _PLUGINS_DIR / "codex" / "AGENT.md"
     dst = project_dir / "AGENT.md"
 
     if not src.is_file():
