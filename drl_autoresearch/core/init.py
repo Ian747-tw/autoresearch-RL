@@ -302,6 +302,18 @@ def run(
     else:                      # no flag: prompt (or auto-install both)
         prompt_and_install(project_dir, auto=auto)
 
+    # Best-effort environment remediation from onboarding preferences.
+    try:
+        from drl_autoresearch.core import doctor as doctor_mod
+
+        console(
+            "Auto-configuring Python environment from onboarding preferences...",
+            "info",
+        )
+        doctor_mod.run(project_dir=project_dir, fix=True)
+    except Exception as exc:  # noqa: BLE001
+        console(f"Automatic environment setup skipped: {exc}", "warning")
+
     console("Next step: run `drl-autoresearch doctor` to verify your environment.", "info")
     return 0
 

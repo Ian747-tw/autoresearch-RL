@@ -123,7 +123,7 @@ def _cmd_init(args: argparse.Namespace) -> int:
 def _cmd_doctor(args: argparse.Namespace) -> int:
     project_dir = Path(args.project_dir).resolve()
     mod = _core_doctor()
-    return mod.run(project_dir=project_dir)
+    return mod.run(project_dir=project_dir, fix=getattr(args, "fix", False))
 
 
 def _cmd_dashboard(args: argparse.Namespace) -> int:
@@ -297,6 +297,14 @@ def _build_parser() -> argparse.ArgumentParser:
         default=".",
         metavar="DIR",
         help="Root of the target project (default: current directory).",
+    )
+    p_doctor.add_argument(
+        "--fix",
+        action="store_true",
+        help=(
+            "Attempt environment remediation automatically (create/use project "
+            "venv per onboarding prefs and install required packages) before checks."
+        ),
     )
     p_doctor.set_defaults(func=_cmd_doctor)
 

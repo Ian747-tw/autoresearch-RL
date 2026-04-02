@@ -53,6 +53,7 @@ This will:
    - **Codex** — installs `AGENT.md` operating guide
    - **Both** (recommended)
    - **None**
+6. Run best-effort environment remediation from onboarding preferences (venv + required package setup), then advise running doctor.
 
 For non-interactive CI environments:
 ```bash
@@ -80,6 +81,8 @@ After init, confirm with the user:
 
 ```bash
 drl-autoresearch doctor
+# if dependencies are missing:
+drl-autoresearch doctor --fix
 ```
 
 Show the full output. All 14 checks must pass before running experiments.
