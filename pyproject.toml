@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "autoresearch"
 version = "0.1.0"
@@ -21,6 +25,9 @@ drl-autoresearch = "drl_autoresearch.cli:main"
 
 [tool.setuptools.package-data]
 "drl_autoresearch" = ["plugins/**/*"]
+
+[tool.setuptools.packages.find]
+include = ["drl_autoresearch*"]
 
 [project.optional-dependencies]
 dashboard = ["aiohttp>=3.9.0"]
