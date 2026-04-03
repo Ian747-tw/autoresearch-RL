@@ -11,16 +11,16 @@ Run:
 drl-autoresearch --version
 ```
 
-If the command is not found, install it globally:
+If the command is not found, install it once for the current user:
 ```bash
-# with pip:
-pip install drl-autoresearch
+# recommended: user-level tool install from source
+cd /path/to/autoresearch-RL
+uv tool update-shell
+uv tool install --force .
+which drl-autoresearch
 
-# or with uv:
-uv tool install drl-autoresearch
-
-# or from source (development):
-pip install -e /path/to/autoresearch-RL
+# reopen the shell once if needed, then run it from any project directory
+drl-autoresearch --version
 ```
 
 ## Step 2: Check initialization status

@@ -118,19 +118,29 @@ This is in addition to normal training/registry status views.
 ```bash
 git clone https://github.com/Ian747-tw/autoresearch-RL
 cd autoresearch-RL
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-pip install -e .
+uv tool update-shell
+uv tool install --force .
 ```
 
-Ubuntu/Debian note:
-- If you see `externally-managed-environment` (PEP 668), install inside `.venv` as shown above.
+This installs `drl-autoresearch` once for your user account so it can be run
+from any directory.
 
 Verify CLI:
 
 ```bash
+which drl-autoresearch
 drl-autoresearch --help
+```
+
+If `which drl-autoresearch` returns nothing after install, open a new shell once
+or run `source ~/.bashrc`.
+
+Alternative if you prefer `pipx`:
+
+```bash
+git clone https://github.com/Ian747-tw/autoresearch-RL
+cd autoresearch-RL
+pipx install --force .
 ```
 
 ### Update existing local clone (no re-download)
@@ -138,8 +148,7 @@ drl-autoresearch --help
 ```bash
 cd ~/autoresearch-RL
 git pull --rebase origin master
-source .venv/bin/activate
-pip install -e .
+uv tool install --force .
 ```
 
 If dependencies changed, run:
@@ -147,9 +156,7 @@ If dependencies changed, run:
 ```bash
 cd ~/autoresearch-RL
 git pull --rebase origin master
-source .venv/bin/activate
-python -m pip install --upgrade pip
-pip install -e .
+uv tool install --force .
 ```
 
 ## End-to-End Workflow
