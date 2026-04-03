@@ -61,6 +61,35 @@ def install_skill_generator_backend(project_dir: Path, context: str) -> bool:
     return True
 
 
+def remove_managed_plugin_files(project_dir: Path) -> list[Path]:
+    """Remove plugin files managed by DRL AutoResearch from the target project."""
+    project_dir = Path(project_dir).resolve()
+    removed: list[Path] = []
+
+    for rel_path in (
+        Path("AGENT.md"),
+        Path(".claude/commands/drl-init.md"),
+        Path(".claude/commands/drl-run.md"),
+        Path(".claude/commands/drl-plan.md"),
+        Path(".claude/commands/drl-diagnose.md"),
+        Path(".claude/commands/drl-research.md"),
+    ):
+        path = project_dir / rel_path
+        if path.exists():
+            path.unlink()
+            removed.append(path)
+
+    for rel_dir in (Path(".claude/commands"), Path(".claude")):
+        path = project_dir / rel_dir
+        if path.is_dir():
+            try:
+                path.rmdir()
+            except OSError:
+                pass
+
+    return removed
+
+
 def _install_cc(project_dir: Path) -> bool:
     """Copy bundled Claude Code command files to <project>/.claude/commands/."""
     src = _PLUGINS_DIR / "claude_code" / "commands"

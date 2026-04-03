@@ -118,6 +118,7 @@ def _cmd_init(args: argparse.Namespace) -> int:
         project_dir=project_dir,
         skip_onboarding=args.skip_onboarding,
         auto=args.auto,
+        refresh=getattr(args, "refresh", False),
         plugin=plugin,
         skill_pack=skill_pack,
         project_mode=project_mode,
@@ -259,6 +260,14 @@ def _build_parser() -> argparse.ArgumentParser:
         help=(
             "Non-interactive mode: accept all defaults without prompting. "
             "Implies --skip-onboarding."
+        ),
+    )
+    p_init.add_argument(
+        "--refresh",
+        action="store_true",
+        help=(
+            "Remove DRL AutoResearch-managed config, state, and plugin files in "
+            "the target project before initializing again. Does not delete user code."
         ),
     )
     p_init.add_argument(

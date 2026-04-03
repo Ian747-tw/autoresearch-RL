@@ -62,6 +62,7 @@ This will:
 For non-interactive CI environments:
 ```bash
 drl-autoresearch init --auto                  # installs both plugins, keeps DRL pack
+drl-autoresearch init --refresh               # clean re-init managed files, then onboard again
 drl-autoresearch init --plugin cc             # Claude Code only
 drl-autoresearch init --plugin codex          # Codex only
 drl-autoresearch init --plugin both           # both, skip prompt

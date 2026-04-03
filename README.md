@@ -190,7 +190,14 @@ Non-interactive examples:
 ```bash
 drl-autoresearch init --auto
 drl-autoresearch init --project-mode build --skill-pack custom --plugin codex --skip-onboarding
+drl-autoresearch init --refresh
 ```
+
+Refresh behavior:
+- `drl-autoresearch init --refresh` removes DRL AutoResearch-managed config,
+  runtime state, skill-pack files, and plugin scaffolding from the target
+  project, then runs init again from scratch.
+- It does not delete your source code or arbitrary project files.
 
 ### Step 2: Validate/fix environment
 

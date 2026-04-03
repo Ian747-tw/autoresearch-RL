@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import sys
 import textwrap
 from datetime import datetime, timezone
@@ -173,6 +174,7 @@ def run(
     project_dir: Path,
     skip_onboarding: bool = False,
     auto: bool = False,
+    refresh: bool = False,
     plugin: str | None = None,
     skill_pack: str | None = None,
     project_mode: str | None = None,
@@ -187,6 +189,9 @@ def run(
         Skip the interactive questionnaire.
     auto:
         Fully non-interactive mode; implies skip_onboarding.
+    refresh:
+        Remove DRL AutoResearch-managed config, state, logs, and plugin files
+        in the target project before re-initializing. Does not delete user code.
     plugin:
         ``"cc"`` | ``"codex"`` | ``"both"`` | ``None``.
         When None and not auto, the user is prompted interactively.
@@ -206,7 +211,19 @@ def run(
     console(f"Initialising DRL AutoResearch project at: {project_dir}", "info")
 
     # Ask for confirmation unless --auto or --skip-onboarding.
-    if not auto and not skip_onboarding and sys.stdin.isatty():
+    if refresh and not auto and sys.stdin.isatty():
+        try:
+            answer = input(
+                "  Refresh will remove DRL AutoResearch-managed files and re-run onboarding. Continue? [y/N] "
+            ).strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            console("Aborted.", "warning")
+            return 130
+        if answer not in ("y", "yes"):
+            console("Aborted.", "warning")
+            return 1
+    elif not auto and not skip_onboarding and sys.stdin.isatty():
         try:
             answer = input(
                 f"  Scaffold project in '{project_dir}'? [Y/n] "
@@ -226,6 +243,9 @@ def run(
     skip_flow = skip_onboarding or not sys.stdin.isatty()
 
     try:
+        if refresh:
+            _refresh_project_managed_files(project_dir)
+
         # Create directory tree.
         for d in (config_dir, logs_dir, skills_dir):
             d.mkdir(parents=True, exist_ok=True)
@@ -332,6 +352,98 @@ def _write_if_missing(path: Path, content: str) -> None:
         return
     path.write_text(content, encoding="utf-8")
     console(f"Created {path.name}", "success")
+
+
+def _refresh_project_managed_files(project_dir: Path) -> None:
+    """Remove DRL AutoResearch-managed files without touching user code."""
+    from drl_autoresearch.plugins.installer import remove_managed_plugin_files
+
+    config_dir = project_dir / ".drl_autoresearch"
+    skills_dir = project_dir / "skills"
+    logs_dir = project_dir / "logs"
+    dashboard_dir = project_dir / "dashboard"
+
+    if config_dir.exists():
+        shutil.rmtree(config_dir)
+        console("Removed .drl_autoresearch/", "info")
+
+    for rel_path in (
+        Path("NON_NEGOTIABLE_RULES.md"),
+        Path("CLAUDE.md"),
+        Path("ORCHESTRATOR.md"),
+        Path("USER_SPEC.md"),
+        Path("IMPLEMENTATION_PLAN.md"),
+    ):
+        path = project_dir / rel_path
+        if path.exists():
+            path.unlink()
+            console(f"Removed {rel_path.as_posix()}", "info")
+
+    removed_plugins = remove_managed_plugin_files(project_dir)
+    for path in removed_plugins:
+        console(f"Removed {path.relative_to(project_dir).as_posix()}", "info")
+
+    for filename in _BUNDLED_SKILL_FILES:
+        path = skills_dir / filename
+        if path.exists():
+            path.unlink()
+            console(f"Removed skills/{filename}", "info")
+
+    if skills_dir.is_dir():
+        gitkeep = skills_dir / ".gitkeep"
+        if gitkeep.exists():
+            gitkeep.unlink()
+            console("Removed skills/.gitkeep", "info")
+        try:
+            skills_dir.rmdir()
+            console("Removed empty skills/", "info")
+        except OSError:
+            pass
+
+    for rel_path in (
+        Path("experiment_registry.tsv"),
+        Path("incidents.md"),
+        Path("handoffs.md"),
+    ):
+        path = logs_dir / rel_path
+        if path.exists():
+            path.unlink()
+            console(f"Removed logs/{rel_path.as_posix()}", "info")
+
+    for rel_dir in (
+        Path("checkpoints"),
+        Path("tensorboard"),
+        Path("videos"),
+    ):
+        dir_path = logs_dir / rel_dir
+        gitkeep = dir_path / ".gitkeep"
+        if gitkeep.exists():
+            gitkeep.unlink()
+            console(f"Removed logs/{rel_dir.as_posix()}/.gitkeep", "info")
+        if dir_path.is_dir():
+            try:
+                dir_path.rmdir()
+                console(f"Removed empty logs/{rel_dir.as_posix()}/", "info")
+            except OSError:
+                pass
+
+    if logs_dir.is_dir():
+        try:
+            logs_dir.rmdir()
+            console("Removed empty logs/", "info")
+        except OSError:
+            pass
+
+    config_path = dashboard_dir / "config.json"
+    if config_path.exists():
+        config_path.unlink()
+        console("Removed dashboard/config.json", "info")
+    if dashboard_dir.is_dir():
+        try:
+            dashboard_dir.rmdir()
+            console("Removed empty dashboard/", "info")
+        except OSError:
+            pass
 
 
 def _resolve_skill_pack(
