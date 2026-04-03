@@ -139,52 +139,75 @@ def _print_header(title: str) -> None:
 
 def _collect_multiline_text(prompt: str, default: Optional[str] = None) -> Optional[str]:
     try:
-        from prompt_toolkit.application import Application
-        from prompt_toolkit.key_binding import KeyBindings
-        from prompt_toolkit.layout import Layout
-        from prompt_toolkit.widgets import Box, Dialog, TextArea
+        from textual.app import App, ComposeResult
+        from textual.binding import Binding
+        from textual.containers import Container
+        from textual.widgets import Footer, Static, TextArea
 
-        text_area = TextArea(
-            text=default or "",
-            multiline=True,
-            wrap_lines=True,
-            scrollbar=True,
-            focus_on_click=True,
-            width=None,
-            height=12,
-        )
+        class TextPromptApp(App[str | None]):
+            CSS = """
+            Screen {
+                align: center middle;
+                background: $surface;
+            }
 
-        bindings = KeyBindings()
+            #dialog {
+                width: 88;
+                max-width: 92vw;
+                height: 22;
+                border: round $primary;
+                padding: 1 2;
+                background: $panel;
+            }
 
-        @bindings.add("enter")
-        def _submit(event) -> None:
-            event.app.exit(result=text_area.text.rstrip("\n"))
+            #title {
+                width: 100%;
+                text-style: bold;
+                margin-bottom: 1;
+            }
 
-        @bindings.add("c-c")
-        @bindings.add("c-d")
-        def _cancel(event) -> None:
-            event.app.exit(result=None)
+            #hint {
+                width: 100%;
+                color: $text-muted;
+                margin-bottom: 1;
+            }
 
-        root = Box(
-            body=Dialog(
-                title=prompt,
-                body=Box(
-                    body=text_area,
-                    padding=0,
-                ),
-                buttons=[],
-                with_background=True,
-            ),
-            padding=1,
-        )
+            TextArea {
+                width: 100%;
+                height: 1fr;
+            }
+            """
 
-        app = Application(
-            layout=Layout(root, focused_element=text_area),
-            key_bindings=bindings,
-            full_screen=True,
-            mouse_support=True,
-        )
-        text = app.run()
+            BINDINGS = [
+                Binding("enter", "submit", "Submit", priority=True),
+                Binding("ctrl+j", "newline", "New Line", priority=True),
+                Binding("escape", "cancel", "Cancel", priority=True),
+                Binding("ctrl+c", "cancel", "Cancel", priority=True),
+            ]
+
+            def compose(self) -> ComposeResult:
+                yield Container(
+                    Static(prompt, id="title"),
+                    Static("Enter submits. Ctrl+J inserts a new line.", id="hint"),
+                    TextArea(default or "", id="answer"),
+                    Footer(),
+                    id="dialog",
+                )
+
+            def on_mount(self) -> None:
+                self.query_one(TextArea).focus()
+
+            def action_submit(self) -> None:
+                value = self.query_one(TextArea).text.rstrip("\n").strip()
+                self.exit(value or None)
+
+            def action_newline(self) -> None:
+                self.query_one(TextArea).insert("\n")
+
+            def action_cancel(self) -> None:
+                self.exit(None)
+
+        text = TextPromptApp().run()
         if text is None:
             return None
         return str(text).strip() or None
@@ -212,15 +235,80 @@ def _tui_select(
     default: Optional[str] = None,
 ) -> Optional[str]:
     try:
-        from prompt_toolkit.shortcuts import radiolist_dialog
+        from textual.app import App, ComposeResult
+        from textual.binding import Binding
+        from textual.containers import Container
+        from textual.widgets import Footer, OptionList, Static
 
-        initial = default if default is not None else (values[0][0] if values else None)
-        return radiolist_dialog(
-            title="DRL AutoResearch",
-            text=title,
-            values=values,
-            default=initial,
-        ).run()
+        class SelectPromptApp(App[str | None]):
+            CSS = """
+            Screen {
+                align: center middle;
+                background: $surface;
+            }
+
+            #dialog {
+                width: 88;
+                max-width: 92vw;
+                height: auto;
+                max-height: 24;
+                border: round $primary;
+                padding: 1 2;
+                background: $panel;
+            }
+
+            #title {
+                width: 100%;
+                text-style: bold;
+                margin-bottom: 1;
+            }
+
+            OptionList {
+                width: 100%;
+                height: auto;
+                max-height: 12;
+                margin-bottom: 1;
+            }
+            """
+
+            BINDINGS = [
+                Binding("enter", "submit", "Select", priority=True),
+                Binding("escape", "cancel", "Cancel", priority=True),
+                Binding("ctrl+c", "cancel", "Cancel", priority=True),
+            ]
+
+            def compose(self) -> ComposeResult:
+                option_list = OptionList(*(label for _, label in values), id="options")
+                yield Container(
+                    Static(title, id="title"),
+                    option_list,
+                    Footer(),
+                    id="dialog",
+                )
+
+            def on_mount(self) -> None:
+                option_list = self.query_one(OptionList)
+                option_list.focus()
+                initial = default if default is not None else (values[0][0] if values else None)
+                if initial is None:
+                    return
+                for idx, (value, _) in enumerate(values):
+                    if value == initial:
+                        option_list.highlighted = idx
+                        break
+
+            def action_submit(self) -> None:
+                option_list = self.query_one(OptionList)
+                idx = option_list.highlighted
+                if idx is None:
+                    self.exit(None)
+                    return
+                self.exit(values[idx][0])
+
+            def action_cancel(self) -> None:
+                self.exit(None)
+
+        return SelectPromptApp().run()
     except Exception:
         return None
 

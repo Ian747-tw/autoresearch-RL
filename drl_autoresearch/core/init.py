@@ -97,7 +97,7 @@ _PYTHON_ENV_YAML = textwrap.dedent("""\
 
     optional_packages:
       - aiohttp      # required for dashboard
-      - questionary  # required for interactive TUI
+      - textual      # required for interactive TUI
 """)
 
 _PERMISSIONS_YAML = textwrap.dedent("""\

@@ -538,7 +538,7 @@ required_packages:
 
 optional_packages:
   - aiohttp      # required for dashboard
-  - questionary  # required for interactive TUI
+  - textual     # required for interactive TUI
   - psutil       # improved hardware detection
   - pyyaml       # YAML config support
   - tensorboard  # training visualisation
