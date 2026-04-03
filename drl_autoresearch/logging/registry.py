@@ -201,6 +201,19 @@ class ExperimentRegistry:
                         fh.write(row_line)
                     finally:
                         _unlock_file(fh)
+                try:
+                    from drl_autoresearch.core.agent_contract import audit_event
+
+                    audit_event(
+                        "registry_add",
+                        {
+                            "run_id": run.run_id,
+                            "status": run.status,
+                            "keep_decision": run.keep_decision,
+                        },
+                    )
+                except Exception:
+                    pass
                 return
             except (OSError, TimeoutError):
                 if attempt == retries - 1:
@@ -230,6 +243,18 @@ class ExperimentRegistry:
             for run in runs:
                 fh.write(run.to_tsv_row() + "\n")
         tmp.replace(self.tsv_path)
+        try:
+            from drl_autoresearch.core.agent_contract import audit_event
+
+            audit_event(
+                "registry_update",
+                {
+                    "run_id": run_id,
+                    "updated_fields": sorted(list(updates.keys())),
+                },
+            )
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------
     # Read helpers

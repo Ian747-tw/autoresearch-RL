@@ -79,6 +79,8 @@ Action types: `edit_reward` | `edit_eval` | `edit_env` | `install_package` |
 
 Exit 0 = allowed. Exit 1 = blocked — do not proceed. Respect the result.
 
+Blocked actions are logged as incidents automatically during autonomous runs.
+
 ## Continuous Runtime Model
 
 `drl-autoresearch run` is the controller. It keeps selecting the next
@@ -89,6 +91,25 @@ experiment and launches Codex or Claude Code for each autonomous cycle.
 - The live loop state is written into `.drl_autoresearch/state.json` and exposed in the dashboard.
 
 Use `drl-autoresearch run --once` if you want one autonomous cycle only.
+
+## Required Backbone APIs
+
+During autonomous cycles, use the project helpers instead of raw file edits:
+
+- `drl_autoresearch.logging.registry.ExperimentRegistry`
+- `drl_autoresearch.logging.journal.ProjectJournal`
+- `drl_autoresearch.logging.incidents.IncidentLog`
+- `drl_autoresearch.logging.handoffs.HandoffLog`
+
+Direct writes to `logs/experiment_registry.tsv`, `logs/project_journal.md`,
+`logs/incidents.md`, or `logs/handoffs.md` are treated as contract violations.
+
+If `skills/` contains relevant guidance, consult it before acting and record the consultation:
+
+```python
+from drl_autoresearch.core.agent_contract import record_skill_consultation
+record_skill_consultation("skills/<file>", "why it was relevant")
+```
 
 ## Writing to the Experiment Registry
 

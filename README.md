@@ -235,6 +235,8 @@ Runtime notes:
 - Use `--once` if you want a single cycle and exit.
 - Use `--agent-backend codex` or `--agent-backend claude` to force one backend.
 - Autonomous runs require onboarding permission policy `open`, `project-only`, or `bootstrap-only`.
+- During autonomous cycles, risky actions must go through `drl-autoresearch check`.
+- Registry/journal/incidents/handoffs are expected to be written through the project helper APIs, not raw file edits.
 
 ### Step 4: Monitor and intervene when needed
 

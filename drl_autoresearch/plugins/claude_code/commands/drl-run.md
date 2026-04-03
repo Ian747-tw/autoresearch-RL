@@ -50,6 +50,9 @@ Controller behavior:
 - `improve` mode: immediate continuous optimization cycles
 - live loop status is written to `.drl_autoresearch/state.json` and shown in the dashboard
 - autonomous execution requires permissive onboarding policy such as `open`
+- risky actions must go through `drl-autoresearch check`
+- registry/journal/incidents/handoffs must be written through their helper APIs, not direct file edits
+- relevant `skills/` guidance should be consulted before acting
 
 ## Convergence detection
 

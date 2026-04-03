@@ -94,6 +94,18 @@ class ProjectJournal:
                 lines.append(f"- {k}: {v}\n")
         lines.append("\n---\n")
         self._append_to_section("## Experiment Log", "".join(lines))
+        try:
+            from drl_autoresearch.core.agent_contract import audit_event
+
+            audit_event(
+                "journal_event",
+                {
+                    "event_type": event_type,
+                    "has_metadata": bool(metadata),
+                },
+            )
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------
     # Typed log helpers
@@ -186,6 +198,17 @@ class ProjectJournal:
         tmp = self.journal_path.with_suffix(".md.tmp")
         tmp.write_text(new_text, encoding="utf-8")
         tmp.replace(self.journal_path)
+        try:
+            from drl_autoresearch.core.agent_contract import audit_event
+
+            audit_event(
+                "journal_state_update",
+                {
+                    "keys": sorted(list(state.keys())),
+                },
+            )
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------
     # Read

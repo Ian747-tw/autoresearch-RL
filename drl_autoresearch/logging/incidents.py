@@ -162,6 +162,20 @@ class IncidentLog:
         all_incidents = self._read_all()
         all_incidents.append(incident)
         self._rewrite(all_incidents)
+        try:
+            from drl_autoresearch.core.agent_contract import audit_event
+
+            audit_event(
+                "incident_report",
+                {
+                    "run_id": run_id,
+                    "incident_id": incident_id,
+                    "incident_type": incident_type,
+                    "severity": effective_severity,
+                },
+            )
+        except Exception:
+            pass
         return incident_id
 
     # ------------------------------------------------------------------

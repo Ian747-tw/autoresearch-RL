@@ -91,6 +91,19 @@ class HandoffLog:
         existing = self._read_all()
         existing.append(handoff)
         self._rewrite(existing)
+        try:
+            from drl_autoresearch.core.agent_contract import audit_event
+
+            audit_event(
+                "handoff_record",
+                {
+                    "handoff_id": handoff.handoff_id,
+                    "from_agent": handoff.from_agent,
+                    "to_agent": handoff.to_agent,
+                },
+            )
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------
     # Read

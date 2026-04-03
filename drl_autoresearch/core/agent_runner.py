@@ -8,6 +8,7 @@ Claude Code while preserving the existing project file backbone.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -126,6 +127,7 @@ Before acting:
 3. Read `AGENT.md` if present.
 4. If `.claude/commands/drl-run.md` exists, follow its project workflow guidance.
 5. Read the latest project state from `.drl_autoresearch/state.json` and recent registry/journal tails.
+6. Inspect `skills/` and consult any relevant project skills before acting.
 
 Execution mode:
 - Current project mode: {project_mode}
@@ -143,14 +145,24 @@ Required outcome for this cycle:
 - Perform one meaningful autonomous coding/training/research iteration.
 - If code changes are needed, make them directly.
 - Run the relevant build/training/eval commands.
-- Update `logs/experiment_registry.tsv` with the result of the cycle.
+- Before any risky action or code/config edit, run `drl-autoresearch check --project-dir . --action <type> --details '<json>'`.
+- If a check is blocked, do not proceed with that action.
+- Use helper APIs only for backbone writes:
+  - `drl_autoresearch.logging.registry.ExperimentRegistry`
+  - `drl_autoresearch.logging.journal.ProjectJournal`
+  - `drl_autoresearch.logging.incidents.IncidentLog`
+  - `drl_autoresearch.logging.handoffs.HandoffLog`
+- Update the experiment registry through `ExperimentRegistry`, never by raw TSV append.
 - If training/eval metrics exist, write `logs/artifacts/<run_id>/metrics.json` when appropriate for dashboard curves.
-- Update `logs/project_journal.md`, `logs/incidents.md`, or `logs/handoffs.md` if the cycle warrants it.
+- Update journal/incidents/handoffs through their helper APIs only when the cycle warrants it.
+- After consulting skills, record that consultation with:
+  `python - <<'PY'\nfrom drl_autoresearch.core.agent_contract import record_skill_consultation\nrecord_skill_consultation('skills/<file>', 'why it was relevant')\nPY`
 - Do not edit `.drl_autoresearch/state.json` manually; the controller will sync state after this run.
 
 Important:
 - Never stop just because a skill script is missing; do the work directly as the coding agent.
 - Keep moving the project forward within the current backbone.
+- This cycle is audited automatically. If you bypass `drl-autoresearch check` or the helper APIs, the controller will mark the cycle failed.
 - Final response should be a concise summary of what changed, what ran, and the registry status.
 """
 
@@ -159,6 +171,7 @@ def run_agent_cycle(
     project_dir: Path,
     backend: str,
     prompt: str,
+    env: Optional[dict[str, str]] = None,
     dangerous: bool = True,
     timeout_seconds: int = _DEFAULT_TIMEOUT_SECONDS,
 ) -> AgentRunResult:
@@ -202,12 +215,17 @@ def run_agent_cycle(
     else:
         raise ValueError(f"Unsupported backend: {backend}")
 
+    merged_env = os.environ.copy()
+    if env:
+        merged_env.update(env)
+
     completed = subprocess.run(
         command,
         cwd=project_dir,
         capture_output=True,
         text=True,
         timeout=timeout_seconds,
+        env=merged_env,
     )
     stdout_log.write_text(completed.stdout or "", encoding="utf-8")
     stderr_log.write_text(completed.stderr or "", encoding="utf-8")

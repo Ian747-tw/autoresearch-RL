@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from drl_autoresearch.cli import console
+from drl_autoresearch.core.agent_contract import initialize_contract, load_contract
 from drl_autoresearch.core.agent_runner import (
     autonomous_policy_allowed,
     build_agent_prompt,
@@ -37,7 +38,9 @@ from drl_autoresearch.core.agent_runner import (
 )
 from drl_autoresearch.core.orchestrator import Orchestrator
 from drl_autoresearch.core.state import ProjectState, VALID_PHASES
+from drl_autoresearch.logging.incidents import IncidentLog
 from drl_autoresearch.logging.journal import ProjectJournal
+from drl_autoresearch.logging.registry import ExperimentRegistry, RunRecord
 
 
 # ---------------------------------------------------------------------------
@@ -59,6 +62,7 @@ _BUILD_PLAN_DIR = "implementation_plan"
 _PLAN_FILE = ".drl_autoresearch/plan.json"
 _REFRESH_COOLDOWN_RUNS = 3
 _AGENT_LOOP_SLEEP_SECONDS = 2
+_RUNTIME_CONTRACTS_DIR = ".drl_autoresearch/runtime/contracts"
 
 
 def _registry_path(project_dir: Path) -> Path:
@@ -75,68 +79,51 @@ def _append_registry(
     status: str,
     notes: str = "",
 ) -> None:
-    """Append one row to the experiment registry TSV."""
-    path = _registry_path(project_dir)
-    path.parent.mkdir(parents=True, exist_ok=True)
-
-    timestamp = datetime.now(timezone.utc).isoformat()
-
-    if not path.exists():
-        with path.open("a", newline="", encoding="utf-8") as fh:
-            writer = csv.writer(fh, delimiter="\t")
-            writer.writerow(_REGISTRY_COLUMNS)
-            writer.writerow([
-                run_id,
-                timestamp,
-                hypothesis,
-                json.dumps(params),
-                metric_name,
-                "" if metric_value is None else metric_value,
-                status,
-                notes,
-            ])
-        return
-
-    header_line = path.read_text(encoding="utf-8").splitlines()[0]
-    header = header_line.split("\t")
-
-    row = {col: "" for col in header}
-    row["run_id"] = run_id
-    row["timestamp"] = timestamp
-    row["hypothesis"] = hypothesis
-    row["params_json"] = json.dumps(params)
-    row["metric_name"] = metric_name
-    row["metric_value"] = "" if metric_value is None else str(metric_value)
-    row["status"] = status
-    row["notes"] = notes
-
-    # Compatible mapping for the original 27-column DRL registry schema.
-    if "custom_metric_name" in row:
-        row["custom_metric_name"] = metric_name
-    if "custom_metric_value" in row:
-        row["custom_metric_value"] = "" if metric_value is None else str(metric_value)
-    if "eval_reward_mean" in row and metric_name == "reward":
-        row["eval_reward_mean"] = "" if metric_value is None else str(metric_value)
-    if "seed_count" in row:
-        row["seed_count"] = row["seed_count"] or "1"
-
-    with path.open("a", newline="", encoding="utf-8") as fh:
-        writer = csv.DictWriter(
-            fh, fieldnames=header, delimiter="\t", extrasaction="ignore"
-        )
-        writer.writerow(row)
+    """Append one row to the experiment registry using the registry helper."""
+    registry = ExperimentRegistry(project_dir=project_dir)
+    registry.initialize()
+    config_summary = json.dumps(params, ensure_ascii=False)
+    record = RunRecord(
+        run_id=run_id,
+        hypothesis=hypothesis,
+        agent="controller",
+        config_summary=config_summary,
+        change_summary=config_summary,
+        rules_checked="controller_fallback",
+        eval_reward_mean=metric_value if metric_name == "reward" else None,
+        custom_metric_name="" if metric_name == "reward" else metric_name,
+        custom_metric_value=None if metric_name == "reward" else metric_value,
+        seed_count=1,
+        status=status,
+        keep_decision="keep" if status == "completed" else "discard",
+        notes=notes,
+    )
+    registry.add_run(record)
 
 
 def _read_registry_rows(project_dir: Path) -> list[dict[str, Any]]:
-    path = _registry_path(project_dir)
-    if not path.exists():
-        return []
-    try:
-        with path.open("r", newline="", encoding="utf-8") as fh:
-            reader = csv.DictReader(fh, delimiter="\t")
-            return [dict(r) for r in reader if isinstance(r, dict)]
-    except OSError:
-        return []
+    registry = ExperimentRegistry(project_dir=project_dir)
+    rows: list[dict[str, Any]] = []
+    for record in registry.get_history():
+        metric_name = record.custom_metric_name or "reward"
+        metric_value: Optional[float]
+        if record.custom_metric_name:
+            metric_value = record.custom_metric_value
+        else:
+            metric_value = record.eval_reward_mean
+        rows.append(
+            {
+                "run_id": record.run_id,
+                "timestamp": record.timestamp,
+                "hypothesis": record.hypothesis,
+                "params_json": record.config_summary,
+                "metric_name": metric_name,
+                "metric_value": metric_value,
+                "status": record.status,
+                "notes": record.notes,
+            }
+        )
+    return rows
 
 
 def _sync_state_from_registry(state: ProjectState, project_dir: Path) -> list[dict[str, Any]]:
@@ -191,6 +178,200 @@ def _set_loop_flags(
     state.flags["agent_backend"] = backend
     state.flags["active_run_id"] = active_run_id
     state.flags["last_agent_exit_code"] = last_exit_code
+
+
+def _contract_path(project_dir: Path, run_id: str) -> Path:
+    return project_dir / _RUNTIME_CONTRACTS_DIR / f"{run_id}.json"
+
+
+def _file_fingerprint(path: Path) -> tuple[bool, int, int]:
+    if not path.exists():
+        return (False, 0, 0)
+    stat = path.stat()
+    return (True, int(stat.st_mtime_ns), int(stat.st_size))
+
+
+def _snapshot_project_tree(project_dir: Path) -> dict[str, tuple[int, int]]:
+    excluded_prefixes = (
+        ".git/",
+        ".venv/",
+        "__pycache__/",
+        "logs/agent_sessions/",
+        "logs/artifacts/",
+    )
+    excluded_exact = {
+        ".drl_autoresearch/state.json",
+        "logs/experiment_registry.tsv",
+        "logs/project_journal.md",
+        "logs/incidents.md",
+        "logs/handoffs.md",
+    }
+    snapshot: dict[str, tuple[int, int]] = {}
+    for path in project_dir.rglob("*"):
+        if not path.is_file():
+            continue
+        rel = path.relative_to(project_dir).as_posix()
+        if rel in excluded_exact or any(rel.startswith(prefix) for prefix in excluded_prefixes):
+            continue
+        stat = path.stat()
+        snapshot[rel] = (int(stat.st_mtime_ns), int(stat.st_size))
+    return snapshot
+
+
+def _detect_project_tree_changes(
+    before: dict[str, tuple[int, int]],
+    after: dict[str, tuple[int, int]],
+) -> list[str]:
+    changed: list[str] = []
+    all_paths = sorted(set(before) | set(after))
+    for rel in all_paths:
+        if before.get(rel) != after.get(rel):
+            changed.append(rel)
+    return changed
+
+
+def _collect_skill_inventory(project_dir: Path) -> list[str]:
+    skills_dir = project_dir / "skills"
+    if not skills_dir.is_dir():
+        return []
+    return sorted(
+        path.relative_to(project_dir).as_posix()
+        for path in skills_dir.rglob("*")
+        if path.is_file()
+    )
+
+
+def _validate_agent_contract(
+    project_dir: Path,
+    *,
+    run_id: str,
+    contract_path: Path,
+    before_tree: dict[str, tuple[int, int]],
+    before_registry: tuple[bool, int, int],
+    before_journal: tuple[bool, int, int],
+    before_incidents: tuple[bool, int, int],
+    before_handoffs: tuple[bool, int, int],
+) -> tuple[list[str], dict[str, Any]]:
+    contract = load_contract(contract_path)
+    if not contract:
+        return (["missing contract audit file"], {})
+
+    events = contract.get("events", [])
+    if not isinstance(events, list):
+        events = []
+
+    after_tree = _snapshot_project_tree(project_dir)
+    changed_project_files = _detect_project_tree_changes(before_tree, after_tree)
+
+    registry_changed = _file_fingerprint(_registry_path(project_dir)) != before_registry
+    journal_changed = _file_fingerprint(project_dir / "logs" / "project_journal.md") != before_journal
+    incidents_changed = _file_fingerprint(project_dir / "logs" / "incidents.md") != before_incidents
+    handoffs_changed = _file_fingerprint(project_dir / "logs" / "handoffs.md") != before_handoffs
+
+    allowed_checks = [
+        e for e in events if e.get("type") == "check" and bool(e.get("allowed"))
+    ]
+    registry_events = [
+        e for e in events if e.get("type") in {"registry_add", "registry_update"} and e.get("run_id") == run_id
+    ]
+    journal_events = [e for e in events if str(e.get("type", "")).startswith("journal_")]
+    incident_events = [e for e in events if e.get("type") == "incident_report"]
+    handoff_events = [e for e in events if e.get("type") == "handoff_record"]
+    skill_events = [e for e in events if e.get("type") == "skill_consulted"]
+
+    violations: list[str] = []
+    if changed_project_files and not allowed_checks:
+        violations.append(
+            "project files changed without an allowed `drl-autoresearch check`"
+        )
+    if registry_changed and not registry_events:
+        violations.append("experiment registry changed without ExperimentRegistry helper usage")
+    if journal_changed and not journal_events:
+        violations.append("project journal changed without ProjectJournal helper usage")
+    if incidents_changed and not incident_events:
+        violations.append("incidents log changed without IncidentLog helper usage")
+    if handoffs_changed and not handoff_events:
+        violations.append("handoffs log changed without HandoffLog helper usage")
+
+    skills_available = _collect_skill_inventory(project_dir)
+    if skills_available and not skill_events:
+        violations.append("skills/ was not consulted and recorded before acting")
+
+    details = {
+        "changed_project_files": changed_project_files,
+        "skills_available": skills_available,
+        "allowed_check_count": len(allowed_checks),
+        "registry_helper_events": len(registry_events),
+        "journal_helper_events": len(journal_events),
+        "incident_helper_events": len(incident_events),
+        "handoff_helper_events": len(handoff_events),
+        "skill_consultations": [str(e.get("skill_path", "")) for e in skill_events],
+    }
+    return violations, details
+
+
+def _mark_agent_cycle_failed(
+    project_dir: Path,
+    *,
+    run_id: str,
+    backend: str,
+    hypothesis: str,
+    params: dict[str, Any],
+    metric_name: str,
+    notes: str,
+    violations: list[str],
+) -> None:
+    incident_log = IncidentLog(project_dir)
+    incident_log.initialize()
+    incident_id = incident_log.report(
+        incident_type="rule_violation",
+        run_id=run_id,
+        description="Autonomous agent cycle violated the runtime contract.",
+        evidence={"backend": backend, "violations": "; ".join(violations), "notes": notes},
+        severity="critical",
+    )
+
+    journal = ProjectJournal(project_dir)
+    journal.initialize(project_name=project_dir.name, spec={})
+    journal.log_event(
+        "agent_contract_violation",
+        (
+            f"Cycle `{run_id}` was marked failed because the autonomous agent bypassed required runtime hooks.\n\n"
+            f"Violations:\n- " + "\n- ".join(violations)
+        ),
+        metadata={"backend": backend, "incident_id": incident_id},
+    )
+
+    registry = ExperimentRegistry(project_dir=project_dir)
+    existing = registry.get_run(run_id)
+    violation_notes = f"{notes}\nContract violations: {'; '.join(violations)}".strip()
+    if existing is not None:
+        registry.update_run(
+            run_id,
+            {
+                "status": "crashed",
+                "keep_decision": "discard",
+                "notes": violation_notes,
+                "rules_checked": "contract_violation",
+            },
+        )
+        return
+
+    config_summary = json.dumps(params, ensure_ascii=False)
+    registry.add_run(
+        RunRecord(
+            run_id=run_id,
+            hypothesis=hypothesis,
+            agent=backend,
+            config_summary=config_summary,
+            change_summary=config_summary,
+            rules_checked="contract_violation",
+            custom_metric_name="" if metric_name == "reward" else metric_name,
+            status="crashed",
+            keep_decision="discard",
+            notes=violation_notes,
+        )
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -794,14 +975,29 @@ def run(
                 )
                 break
 
+            run_id = str(experiment.get("run_id", str(uuid.uuid4())))
+            contract_path = _contract_path(project_dir, run_id)
+            initialize_contract(
+                contract_path,
+                run_id=run_id,
+                backend=backend,
+                project_mode=str(project_mode),
+                phase=str(state.current_phase),
+                hypothesis=str(experiment.get("hypothesis", "")),
+            )
             pre_rows = _read_registry_rows(project_dir)
+            before_tree = _snapshot_project_tree(project_dir)
+            before_registry = _file_fingerprint(_registry_path(project_dir))
+            before_journal = _file_fingerprint(project_dir / "logs" / "project_journal.md")
+            before_incidents = _file_fingerprint(project_dir / "logs" / "incidents.md")
+            before_handoffs = _file_fingerprint(project_dir / "logs" / "handoffs.md")
             state.queue = experiments[1:]
             _set_loop_flags(
                 state,
                 running=True,
                 backend=backend,
                 activity="agent_cycle_running",
-                active_run_id=str(experiment.get("run_id", "")) or None,
+                active_run_id=run_id or None,
             )
             state.save()
 
@@ -815,14 +1011,30 @@ def run(
                 project_dir=project_dir,
                 backend=backend,
                 prompt=prompt,
+                env={
+                    "DRL_AUTORESEARCH_RUN_ID": run_id,
+                    "DRL_AUTORESEARCH_CONTRACT_PATH": str(contract_path),
+                    "DRL_AUTORESEARCH_AGENT_BACKEND": backend,
+                },
                 dangerous=True,
+            )
+
+            violations, contract_details = _validate_agent_contract(
+                project_dir=project_dir,
+                run_id=run_id,
+                contract_path=contract_path,
+                before_tree=before_tree,
+                before_registry=before_registry,
+                before_journal=before_journal,
+                before_incidents=before_incidents,
+                before_handoffs=before_handoffs,
             )
 
             post_rows = _read_registry_rows(project_dir)
             if len(post_rows) == len(pre_rows):
                 _append_registry(
                     project_dir,
-                    run_id=str(experiment.get("run_id", str(uuid.uuid4()))),
+                    run_id=run_id,
                     hypothesis=str(experiment.get("hypothesis", "")),
                     params=experiment.get("params", {}),
                     metric_name=str(experiment.get("metric_name", "reward")),
@@ -834,6 +1046,33 @@ def run(
                     ),
                 )
                 post_rows = _read_registry_rows(project_dir)
+
+            if violations:
+                _mark_agent_cycle_failed(
+                    project_dir=project_dir,
+                    run_id=run_id,
+                    backend=backend,
+                    hypothesis=str(experiment.get("hypothesis", "")),
+                    params=experiment.get("params", {}),
+                    metric_name=str(experiment.get("metric_name", "reward")),
+                    notes=(
+                        f"Autonomous backend={backend} exit_code={agent_result.exit_code}. "
+                        f"stdout={agent_result.stdout_log.name} stderr={agent_result.stderr_log.name}"
+                    ),
+                    violations=violations,
+                )
+                post_rows = _read_registry_rows(project_dir)
+                console(
+                    f"Cycle {run_id[:8]} violated the runtime contract and was marked failed.",
+                    "error",
+                )
+                for violation in violations:
+                    console(f"  {violation}", "error")
+                if contract_details.get("changed_project_files"):
+                    console(
+                        "  changed files: " + ", ".join(contract_details["changed_project_files"][:6]),
+                        "error",
+                    )
 
             state = ProjectState.load(project_dir)
             _sync_state_from_registry(state, project_dir)
