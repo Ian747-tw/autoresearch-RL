@@ -137,6 +137,48 @@ def _print_header(title: str) -> None:
     print(SEP)
 
 
+def _collect_multiline_text(prompt: str, default: Optional[str] = None) -> Optional[str]:
+    try:
+        from prompt_toolkit import prompt as pt_prompt
+        from prompt_toolkit.key_binding import KeyBindings
+
+        bindings = KeyBindings()
+
+        @bindings.add("enter")
+        def _submit(event) -> None:
+            event.current_buffer.validate_and_handle()
+
+        @bindings.add("escape", "enter")
+        def _newline(event) -> None:
+            event.current_buffer.insert_text("\n")
+
+        print(f"{prompt}  [Enter=submit, Esc+Enter=new line]")
+        text = pt_prompt(
+            "> ",
+            default=default or "",
+            multiline=True,
+            key_bindings=bindings,
+            prompt_continuation=lambda width, line_number, is_soft_wrap: "... ",
+        )
+        return text.strip() or None
+    except Exception:
+        print(f"{prompt}")
+        print("  Multi-line input box unavailable; falling back to terminal input.")
+        print("  Type `END` on its own line when done.")
+        lines: list[str] = []
+        while True:
+            try:
+                line = input("| ")
+            except (EOFError, KeyboardInterrupt):
+                print()
+                return "\n".join(lines).strip() or None
+            if line == "END":
+                break
+            lines.append(line)
+
+        return "\n".join(lines).strip() or None
+
+
 def _ask(
     prompt: str,
     default: Optional[str] = None,
@@ -144,6 +186,7 @@ def _ask(
     allow_auto: bool = False,
     allow_skip: bool = True,
     allow_decide: bool = False,
+    allow_multiline: bool = False,
 ) -> Optional[str]:
     """
     Ask a single question and return the answer.
@@ -164,25 +207,45 @@ def _ask(
         hints.append("s=skip")
     if allow_decide:
         hints.append("d=let tool decide")
-
-    hint_str = f"  [{', '.join(hints)}]" if hints else ""
-    full_prompt = f"{prompt}{hint_str}\n> "
+    if not allow_multiline:
+        hint_str = f"  [{', '.join(hints)}]" if hints else ""
+        full_prompt = f"{prompt}{hint_str}\n> "
 
     while True:
-        try:
-            raw = input(full_prompt).strip()
-        except (EOFError, KeyboardInterrupt):
-            print()
-            return None
+        if allow_multiline:
+            hint_lines = []
+            if allow_skip:
+                hint_lines.append("Type `s` alone to skip.")
+            if allow_auto:
+                hint_lines.append("Type `a` alone to auto-detect.")
+            if allow_decide:
+                hint_lines.append("Type `d` alone to let the tool decide.")
+            if hint_lines:
+                print("  " + " ".join(hint_lines))
+            raw = _collect_multiline_text(prompt, default=default)
+            if raw is None:
+                if default is not None:
+                    return default
+                if allow_skip:
+                    return None
+                print("  (A value is required. Press Ctrl+C to abort.)")
+                continue
+            raw = raw.strip()
+        else:
+            try:
+                raw = input(full_prompt).strip()
+            except (EOFError, KeyboardInterrupt):
+                print()
+                return None
 
-        if raw == "" and default is not None:
-            return default
         if raw.lower() == "s" and allow_skip:
             return None
         if raw.lower() == "a" and allow_auto:
             return "__auto__"
         if raw.lower() == "d" and allow_decide:
             return "__decide__"
+        if raw == "" and default is not None:
+            return default
         if raw:
             return raw
         if default is None and not allow_skip:
@@ -420,6 +483,7 @@ class OnboardingFlow:
             allow_auto=False,
             allow_skip=True,
             allow_decide=True,
+            allow_multiline=True,
         )
         if env is None:
             self._log_assumption("project.env", None, "default", "low",
@@ -457,6 +521,7 @@ class OnboardingFlow:
             default="maximize episode reward",
             allow_skip=True,
             allow_decide=True,
+            allow_multiline=True,
         )
         if objective in (None, "__decide__"):
             objective = "maximize episode reward"
@@ -467,6 +532,7 @@ class OnboardingFlow:
             "Real success metric (what actually matters, not just reward)",
             allow_skip=True,
             allow_decide=True,
+            allow_multiline=True,
         )
         if success_metric in (None, "__decide__"):
             self._log_assumption("project.success_metric", None, "default", "low",
@@ -497,16 +563,19 @@ class OnboardingFlow:
             "Wall-clock goal (hours, e.g. '8' for overnight)",
             allow_skip=True,
             allow_decide=True,
+            allow_multiline=True,
         )
         compute_budget = _ask(
             "Compute budget (GPU-hours or dollars, e.g. '50 GPU-hours')",
             allow_skip=True,
             allow_decide=True,
+            allow_multiline=True,
         )
         other_information = _ask(
             "Other information (project quirks, known issues, extra context)",
             allow_skip=True,
             allow_decide=True,
+            allow_multiline=True,
         )
         if other_information in (None, "__decide__"):
             self._log_assumption(

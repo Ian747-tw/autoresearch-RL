@@ -204,7 +204,7 @@ wheels = [
 [[package]]
 name = "autoresearch"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "kernels" },
     { name = "matplotlib" },
@@ -212,6 +212,7 @@ dependencies = [
     { name = "numpy", version = "2.4.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "pandas", version = "2.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "pandas", version = "3.0.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "prompt-toolkit" },
     { name = "pyarrow" },
     { name = "requests" },
     { name = "rustbpe" },
@@ -239,6 +240,7 @@ requires-dist = [
     { name = "matplotlib", specifier = ">=3.10.8" },
     { name = "numpy", specifier = ">=2.2.6" },
     { name = "pandas", specifier = ">=2.3.3" },
+    { name = "prompt-toolkit", specifier = ">=3.0.52" },
     { name = "pyarrow", specifier = ">=21.0.0" },
     { name = "questionary", marker = "extra == 'full'", specifier = ">=2.0.0" },
     { name = "questionary", marker = "extra == 'tui'", specifier = ">=2.0.0" },
