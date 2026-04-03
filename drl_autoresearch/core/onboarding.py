@@ -206,6 +206,25 @@ def _collect_multiline_text(prompt: str, default: Optional[str] = None) -> Optio
         return "\n".join(lines).strip() or None
 
 
+def _tui_select(
+    title: str,
+    values: list[tuple[str, str]],
+    default: Optional[str] = None,
+) -> Optional[str]:
+    try:
+        from prompt_toolkit.shortcuts import radiolist_dialog
+
+        initial = default if default is not None else (values[0][0] if values else None)
+        return radiolist_dialog(
+            title="DRL AutoResearch",
+            text=title,
+            values=values,
+            default=initial,
+        ).run()
+    except Exception:
+        return None
+
+
 def _ask(
     prompt: str,
     default: Optional[str] = None,
@@ -280,6 +299,18 @@ def _ask_choice(
     allow_decide: bool = False,
 ) -> Optional[str]:
     """Numbered-choice prompt. Returns chosen value or None."""
+    values = [(choice, choice) for choice in choices]
+    if allow_decide:
+        values.append(("__decide__", "let tool decide"))
+    if allow_skip:
+        values.append(("__skip__", "skip"))
+
+    tui_result = _tui_select(prompt, values, default=default)
+    if tui_result == "__skip__":
+        return None
+    if tui_result in {choice for choice in choices} or tui_result == "__decide__":
+        return tui_result
+
     print()
     print(prompt)
     for i, c in enumerate(choices, 1):
@@ -331,6 +362,17 @@ def _ask_choice(
 
 def _ask_confirm(prompt: str, default: bool = True) -> bool:
     """Yes/No confirmation. Returns bool."""
+    default_value = "yes" if default else "no"
+    tui_result = _tui_select(
+        prompt,
+        [("yes", "yes"), ("no", "no")],
+        default=default_value,
+    )
+    if tui_result == "yes":
+        return True
+    if tui_result == "no":
+        return False
+
     hint = "[Y/n]" if default else "[y/N]"
     full_prompt = f"{prompt} {hint}\n> "
     try:
@@ -843,18 +885,6 @@ class OnboardingFlow:
         print()
         print(SEP)
         print("  FINAL QUESTION — HARD RULES")
-        print()
-        print("  What rules can NEVER be broken in this project?")
-        print()
-        print("  Examples:")
-        print("    - Never modify the evaluation code")
-        print("    - Never use expert demonstrations")
-        print("    - Never exceed 24GB VRAM")
-        print("    - Never change the reward function")
-        print("    - Budget: max 100 GPU-hours total")
-        print()
-        print("  Type each rule on a new line.")
-        print("  Enter a blank line when done.")
         print(SEP)
 
         if self.skip:
@@ -864,20 +894,11 @@ class OnboardingFlow:
             print("  (--skip-onboarding active; hard rules set to 'none')")
             return rules
 
-        rules: list[str] = []
-        print()
-        while True:
-            try:
-                line = input("> ").strip()
-            except (EOFError, KeyboardInterrupt):
-                print()
-                break
-            if line == "":
-                if not rules:
-                    print("  (You must acknowledge. Type 'none' if there are no rules.)")
-                    continue
-                break
-            rules.append(line)
+        raw = _collect_multiline_text(
+            "Hard rules (one per line). Type `none` if there are no extra hard rules.",
+            default="",
+        )
+        rules = [line.strip() for line in (raw or "").splitlines() if line.strip()]
 
         if not rules:
             rules = ["none"]
