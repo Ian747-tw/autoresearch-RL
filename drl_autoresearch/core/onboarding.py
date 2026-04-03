@@ -139,28 +139,58 @@ def _print_header(title: str) -> None:
 
 def _collect_multiline_text(prompt: str, default: Optional[str] = None) -> Optional[str]:
     try:
-        from prompt_toolkit import prompt as pt_prompt
+        from prompt_toolkit.application import Application
         from prompt_toolkit.key_binding import KeyBindings
+        from prompt_toolkit.layout import HSplit, Layout
+        from prompt_toolkit.layout.containers import Window
+        from prompt_toolkit.layout.controls import FormattedTextControl
+        from prompt_toolkit.layout.dimension import Dimension
+        from prompt_toolkit.widgets import Box, Frame, TextArea
+        text_area = TextArea(
+            text=default or "",
+            multiline=True,
+            wrap_lines=True,
+            scrollbar=True,
+            focus_on_click=True,
+        )
 
         bindings = KeyBindings()
 
         @bindings.add("enter")
         def _submit(event) -> None:
-            event.current_buffer.validate_and_handle()
+            event.app.exit(result=text_area.text.rstrip("\n"))
 
-        @bindings.add("escape", "enter")
-        def _newline(event) -> None:
-            event.current_buffer.insert_text("\n")
+        help_parts = ["Enter submit"]
 
-        print(f"{prompt}  [Enter=submit, Esc+Enter=new line]")
-        text = pt_prompt(
-            "> ",
-            default=default or "",
-            multiline=True,
-            key_bindings=bindings,
-            prompt_continuation=lambda width, line_number, is_soft_wrap: "... ",
+        root = Box(
+            body=HSplit(
+                [
+                    Window(
+                        content=FormattedTextControl(prompt),
+                        height=Dimension(preferred=2),
+                    ),
+                    Window(
+                        content=FormattedTextControl("Paste or type structured input below."),
+                        height=1,
+                    ),
+                    Frame(text_area),
+                    Window(
+                        content=FormattedTextControl("  ".join(help_parts)),
+                        height=1,
+                    ),
+                ]
+            ),
+            padding=1,
         )
-        return text.strip() or None
+
+        app = Application(
+            layout=Layout(root, focused_element=text_area),
+            key_bindings=bindings,
+            full_screen=True,
+            mouse_support=True,
+        )
+        text = app.run()
+        return str(text).strip() or None
     except Exception:
         print(f"{prompt}")
         print("  Multi-line input box unavailable; falling back to terminal input.")
@@ -186,7 +216,7 @@ def _ask(
     allow_auto: bool = False,
     allow_skip: bool = True,
     allow_decide: bool = False,
-    allow_multiline: bool = False,
+    allow_multiline: bool = True,
 ) -> Optional[str]:
     """
     Ask a single question and return the answer.
@@ -213,15 +243,6 @@ def _ask(
 
     while True:
         if allow_multiline:
-            hint_lines = []
-            if allow_skip:
-                hint_lines.append("Type `s` alone to skip.")
-            if allow_auto:
-                hint_lines.append("Type `a` alone to auto-detect.")
-            if allow_decide:
-                hint_lines.append("Type `d` alone to let the tool decide.")
-            if hint_lines:
-                print("  " + " ".join(hint_lines))
             raw = _collect_multiline_text(prompt, default=default)
             if raw is None:
                 if default is not None:
