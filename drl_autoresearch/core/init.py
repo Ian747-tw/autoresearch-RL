@@ -426,6 +426,7 @@ def _generate_bundled_drl_skills(project_dir: Path, onboarding_result: object) -
                 target_value="tool_decides",
                 wall_clock_budget=str(project.get("wall_clock_goal_hours") or "auto"),
                 compute_budget=str(project.get("compute_budget") or "auto"),
+                other_information=project.get("other_information") or "",
                 reward_modification_allowed=permissions.get("policy") != "locked",
                 user_rules=[rule for rule in hard_rules if rule and rule != "none"],
                 hardware_summary=_format_hardware_summary(hardware),
@@ -485,6 +486,7 @@ def _build_skill_generator_context(project_dir: Path, onboarding_result: object)
         - Action space: {project.get("action_space") or "unspecified"}
         - Objective: {project.get("objective") or "unspecified"}
         - Success metric: {project.get("success_metric") or "unspecified"}
+        - Other information: {project.get("other_information") or "none provided"}
         - Modification policy: {project.get("modifications_allowed") or "unspecified"}
         - Permission policy: {permissions.get("policy") or "prompted"}
 

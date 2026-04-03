@@ -346,6 +346,7 @@ def _write_compact_build_plan_folder(project_dir: Path, state: ProjectState) -> 
     env = project.get("env") or "unspecified"
     objective = project.get("objective") or "maximize task success metric"
     success_metric = project.get("success_metric") or state.best_metric_name or "reward"
+    other_information = project.get("other_information") or "none provided"
 
     files = {
         "01_research.md": (
@@ -353,6 +354,7 @@ def _write_compact_build_plan_folder(project_dir: Path, state: ProjectState) -> 
             f"- Environment/domain: {env}\n"
             f"- Objective: {objective}\n"
             f"- Success metric: {success_metric}\n"
+            f"- Other information: {other_information}\n"
             "- Run deep research to identify 3-5 promising design directions.\n"
             "- Keep only high-signal findings linked to expected training impact.\n"
             "- Reject ideas that violate hard rules or budget constraints.\n"

@@ -46,6 +46,7 @@ class OnboardingResult:
         target_value: str = "195.0 over 100 consecutive episodes",
         wall_clock_budget: str = "24 hours",
         compute_budget: str = "10",
+        other_information: str = "",
         max_vram: str = "auto",
         reward_modification_allowed: bool = True,
         env_modification_allowed: bool = False,
@@ -66,6 +67,7 @@ class OnboardingResult:
         self.target_value = target_value
         self.wall_clock_budget = wall_clock_budget
         self.compute_budget = compute_budget
+        self.other_information = other_information
         self.max_vram = max_vram
         self.reward_modification_allowed = reward_modification_allowed
         self.env_modification_allowed = env_modification_allowed
@@ -342,6 +344,7 @@ class ScaffoldGenerator:
             target_value=ob.target_value,
             wall_clock_budget=ob.wall_clock_budget,
             compute_budget=ob.compute_budget,
+            other_information=ob.other_information or "None provided.",
             algorithm_recommendations=algo_text,
             timestamp=self._ts,
         )
@@ -375,6 +378,7 @@ class ScaffoldGenerator:
             target_value=ob.target_value,
             wall_clock_budget=ob.wall_clock_budget,
             compute_budget=ob.compute_budget,
+            other_information=ob.other_information or "None provided.",
             reward_modification_allowed=str(ob.reward_modification_allowed),
             env_modification_allowed=str(ob.env_modification_allowed),
             eval_modification_allowed=str(ob.eval_modification_allowed),
@@ -652,6 +656,7 @@ _CLAUDE_MD_TEMPLATE = """\
 | Target Value | {target_value} |
 | Wall-Clock Budget | {wall_clock_budget} |
 | Compute Budget | {compute_budget} GPU-hours |
+| Other Information | {other_information} |
 | Recommended Algorithms | {algorithm_recommendations} |
 
 You are a **research engineer** running an autonomous DRL research loop.
@@ -1310,6 +1315,7 @@ _USER_SPEC_MD_TEMPLATE = """\
 - **Target Value**: {target_value}
 - **Wall-Clock Budget**: {wall_clock_budget}
 - **Compute Budget**: {compute_budget} GPU-hours
+- **Other Information**: {other_information}
 
 ## Constraints
 - Reward modification: {reward_modification_allowed}

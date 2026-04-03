@@ -503,6 +503,20 @@ class OnboardingFlow:
             allow_skip=True,
             allow_decide=True,
         )
+        other_information = _ask(
+            "Other information (project quirks, known issues, extra context)",
+            allow_skip=True,
+            allow_decide=True,
+        )
+        if other_information in (None, "__decide__"):
+            self._log_assumption(
+                "project.other_information",
+                None,
+                "default",
+                "low",
+                "No extra project context was provided.",
+            )
+            other_information = None
 
         return {
             "name": name,
@@ -516,6 +530,7 @@ class OnboardingFlow:
             "imitation_learning_allowed": imitation,
             "wall_clock_goal_hours": wall_clock,
             "compute_budget": compute_budget,
+            "other_information": other_information,
         }
 
     def _default_project(self, name: str) -> dict:
@@ -533,6 +548,7 @@ class OnboardingFlow:
             "imitation_learning_allowed": "no",
             "wall_clock_goal_hours": None,
             "compute_budget": None,
+            "other_information": None,
         }
 
     # ------------------------------------------------------------------
@@ -869,6 +885,7 @@ class OnboardingFlow:
                 "imitation_learning_allowed": "no",
                 "wall_clock_goal_hours": None,
                 "compute_budget": None,
+                "other_information": None,
             },
             hardware=detected_hw,
             python_env={

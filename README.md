@@ -57,6 +57,7 @@ Skill generation policy for custom pack:
 Init onboarding captures key inputs including:
 
 - project/task basics (domain, objective, constraints)
+- other information (quirks, known issues, extra context)
 - hardware and runtime assumptions
 - Python environment preferences
 - permission policy

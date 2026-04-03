@@ -41,7 +41,7 @@ drl-autoresearch init
 
 This will:
 1. Scaffold `.drl_autoresearch/`, `logs/`, `skills/`, `NON_NEGOTIABLE_RULES.md`
-2. Run onboarding to capture the user's project spec and hard rules
+2. Run onboarding to capture the user's project spec, other context, and hard rules
 3. Ask which skill-pack mode to use:
    - **Provided DRL pack** — keep the bundled compact DRL skills
    - **Custom pack** — remove the bundled DRL skills from this project and install `.drl_autoresearch/backend/skill_generator.md` so the agent can research and generate a compact domain-specific replacement pack
