@@ -21,6 +21,7 @@ import os
 import shutil
 import signal
 import sys
+import time
 import traceback
 import uuid
 from datetime import datetime, timezone
@@ -28,6 +29,12 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from drl_autoresearch.cli import console
+from drl_autoresearch.core.agent_runner import (
+    autonomous_policy_allowed,
+    build_agent_prompt,
+    detect_backend,
+    run_agent_cycle,
+)
 from drl_autoresearch.core.orchestrator import Orchestrator
 from drl_autoresearch.core.state import ProjectState, VALID_PHASES
 from drl_autoresearch.logging.journal import ProjectJournal
@@ -51,6 +58,7 @@ _WORKFLOW_METADATA = ".drl_autoresearch/skill_pack.json"
 _BUILD_PLAN_DIR = "implementation_plan"
 _PLAN_FILE = ".drl_autoresearch/plan.json"
 _REFRESH_COOLDOWN_RUNS = 3
+_AGENT_LOOP_SLEEP_SECONDS = 2
 
 
 def _registry_path(project_dir: Path) -> Path:
@@ -117,6 +125,72 @@ def _append_registry(
             fh, fieldnames=header, delimiter="\t", extrasaction="ignore"
         )
         writer.writerow(row)
+
+
+def _read_registry_rows(project_dir: Path) -> list[dict[str, Any]]:
+    path = _registry_path(project_dir)
+    if not path.exists():
+        return []
+    try:
+        with path.open("r", newline="", encoding="utf-8") as fh:
+            reader = csv.DictReader(fh, delimiter="\t")
+            return [dict(r) for r in reader if isinstance(r, dict)]
+    except OSError:
+        return []
+
+
+def _sync_state_from_registry(state: ProjectState, project_dir: Path) -> list[dict[str, Any]]:
+    rows = _read_registry_rows(project_dir)
+    state.total_runs = len(rows)
+    state.kept_runs = 0
+    state.crashed_runs = 0
+    state.discarded_runs = 0
+
+    best_run_id: Optional[str] = None
+    best_metric_name = state.best_metric_name or "reward"
+    best_metric_value: Optional[float] = None
+
+    for row in rows:
+        status = str(row.get("status", "")).strip()
+        if status == "completed":
+            state.kept_runs += 1
+        elif status == "crashed":
+            state.crashed_runs += 1
+        else:
+            state.discarded_runs += 1
+
+        metric_name = str(row.get("metric_name", "") or best_metric_name).strip() or best_metric_name
+        raw_value = row.get("metric_value")
+        try:
+            metric_value = float(raw_value) if raw_value not in ("", None) else None
+        except (TypeError, ValueError):
+            metric_value = None
+        if status == "completed" and metric_value is not None:
+            if best_metric_value is None or metric_value > best_metric_value:
+                best_metric_value = metric_value
+                best_metric_name = metric_name
+                best_run_id = str(row.get("run_id") or "")
+
+    state.best_run_id = best_run_id
+    state.best_metric_name = best_metric_name
+    state.best_metric_value = best_metric_value
+    return rows
+
+
+def _set_loop_flags(
+    state: ProjectState,
+    *,
+    running: bool,
+    backend: Optional[str],
+    activity: str,
+    active_run_id: Optional[str] = None,
+    last_exit_code: Optional[int] = None,
+) -> None:
+    state.flags["loop_running"] = running
+    state.flags["current_activity"] = activity
+    state.flags["agent_backend"] = backend
+    state.flags["active_run_id"] = active_run_id
+    state.flags["last_agent_exit_code"] = last_exit_code
 
 
 # ---------------------------------------------------------------------------
@@ -576,6 +650,22 @@ def _finalize_build_mode_if_complete(
     state.flags["build_bootstrap_complete"] = True
 
 
+def _select_next_experiments(
+    state: ProjectState,
+    orchestrator: Optional[Orchestrator],
+) -> list[dict[str, Any]]:
+    experiments = list(state.queue)
+    if experiments:
+        return experiments
+    if orchestrator is not None:
+        next_exp = orchestrator.decide_next_experiment()
+        if next_exp is not None:
+            console("Queue is empty — using orchestrator-selected experiment.", "info")
+            return [_normalize_orchestrator_experiment(next_exp, state)]
+    console("Queue is empty — generating baseline experiments (fallback).", "info")
+    return _generate_baseline_experiments()
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -584,8 +674,10 @@ def run(
     project_dir: Path,
     parallel: int = 1,
     dry_run: bool = False,
+    once: bool = False,
+    agent_backend: str = "auto",
 ) -> int:
-    """Execute the autonomous experiment loop.
+    """Execute the autonomous agent-driven experiment loop.
 
     Parameters
     ----------
@@ -595,6 +687,10 @@ def run(
         Maximum number of concurrent experiments.
     dry_run:
         If True, validate and print what would run without executing.
+    once:
+        If True, run a single autonomous cycle and exit.
+    agent_backend:
+        ``auto`` | ``codex`` | ``claude``.
     """
     project_dir = Path(project_dir).resolve()
 
@@ -621,129 +717,197 @@ def run(
         "info",
     )
 
-    if project_mode == "build":
-        _prepare_build_mode(project_dir=project_dir, state=state, dry_run=dry_run)
+    backend = detect_backend(project_dir, preferred=agent_backend)
+    if backend is None:
+        console(
+            "No supported coding-agent CLI detected for this project. Install Codex or Claude Code.",
+            "error",
+        )
+        return 1
+    if not autonomous_policy_allowed(project_dir):
+        console(
+            "Autonomous run requires onboarding permission policy `open`, `project-only`, or `bootstrap-only`.",
+            "error",
+        )
+        return 1
+    if parallel > 1:
+        console(
+            "Agent-driven runtime currently executes one autonomous cycle at a time; ignoring --parallel > 1.",
+            "warning",
+        )
+        parallel = 1
 
-    _maybe_refresh_when_stuck(
-        project_dir=project_dir,
-        state=state,
-        orchestrator=orchestrator,
-        dry_run=dry_run,
-    )
-
-    if state.current_phase == "converged":
-        console("Research loop has converged. No further experiments to run.", "info")
-        return 0
-
-    # Populate queue from state or generate baseline.
-    experiments = list(state.queue)
-    if not experiments:
-        if orchestrator is not None:
-            next_exp = orchestrator.decide_next_experiment()
-            if next_exp is not None:
-                experiments = [_normalize_orchestrator_experiment(next_exp, state)]
-                console("Queue is empty — using orchestrator-selected experiment.", "info")
-        if not experiments:
-            console("Queue is empty — generating baseline experiments (fallback).", "info")
-            experiments = _generate_baseline_experiments()
-
-    console(
-        f"Experiments queued: {len(experiments)}  |  Parallel workers: {parallel}",
-        "info",
-    )
-
-    if dry_run:
-        console("Dry-run mode — no experiments will be executed.", "warning")
-        for exp in experiments:
-            print(
-                f"  [{exp.get('run_id', '?')[:8]}] "
-                f"{exp.get('hypothesis', 'unnamed')} "
-                f"params={json.dumps(exp.get('params', {}))}"
-            )
-        return 0
-
-    # Clear queue before running (will be repopulated on next plan refresh).
-    state.queue.clear()
-
-    # -----------------------------------------------------------------------
-    # Execute experiments (parallel or sequential).
-    # -----------------------------------------------------------------------
     _shutdown_requested = False
 
     def _handle_sigint(sig, frame):  # noqa: ANN001
         nonlocal _shutdown_requested
         _shutdown_requested = True
-        console("Shutdown requested — finishing current experiments...", "warning")
+        console("Shutdown requested — stopping after current autonomous cycle.", "warning")
 
     old_handler = signal.signal(signal.SIGINT, _handle_sigint)
+    journal = ProjectJournal(project_dir)
+    journal.initialize(project_name=state.project_name, spec={})
 
     try:
-        if parallel > 1:
-            results = _run_parallel(experiments, project_dir, parallel)
-        else:
-            results = _run_sequential(experiments, project_dir)
+        cycle_count = 0
+        while not _shutdown_requested:
+            state = ProjectState.load(project_dir)
+            _sync_state_from_registry(state, project_dir)
+            state.flags["project_mode"] = _load_project_mode(project_dir, state)
+            project_mode = state.flags["project_mode"]
+
+            if project_mode == "build":
+                _prepare_build_mode(project_dir=project_dir, state=state, dry_run=dry_run)
+
+            _maybe_refresh_when_stuck(
+                project_dir=project_dir,
+                state=state,
+                orchestrator=orchestrator,
+                dry_run=dry_run,
+            )
+
+            if state.current_phase == "converged":
+                console("Research loop has converged. No further experiments to run.", "info")
+                break
+
+            experiments = _select_next_experiments(state, orchestrator)
+            if not experiments:
+                console("No experiments available for the next autonomous cycle.", "warning")
+                break
+
+            experiment = experiments[0]
+            console(
+                f"Autonomous cycle {cycle_count + 1}  |  backend={backend}  |  run={str(experiment.get('run_id', '?'))[:8]}",
+                "info",
+            )
+            console(
+                f"Experiments queued: {len(experiments)}  |  Parallel workers: {parallel}",
+                "info",
+            )
+
+            if dry_run:
+                console("Dry-run mode — autonomous agent will not be launched.", "warning")
+                print(
+                    f"  [{experiment.get('run_id', '?')[:8]}] "
+                    f"{experiment.get('hypothesis', 'unnamed')} "
+                    f"params={json.dumps(experiment.get('params', {}))}"
+                )
+                break
+
+            pre_rows = _read_registry_rows(project_dir)
+            state.queue = experiments[1:]
+            _set_loop_flags(
+                state,
+                running=True,
+                backend=backend,
+                activity="agent_cycle_running",
+                active_run_id=str(experiment.get("run_id", "")) or None,
+            )
+            state.save()
+
+            prompt = build_agent_prompt(
+                project_dir=project_dir,
+                state=state.to_dict(),
+                experiment=experiment,
+                project_mode=project_mode,
+            )
+            agent_result = run_agent_cycle(
+                project_dir=project_dir,
+                backend=backend,
+                prompt=prompt,
+                dangerous=True,
+            )
+
+            post_rows = _read_registry_rows(project_dir)
+            if len(post_rows) == len(pre_rows):
+                _append_registry(
+                    project_dir,
+                    run_id=str(experiment.get("run_id", str(uuid.uuid4()))),
+                    hypothesis=str(experiment.get("hypothesis", "")),
+                    params=experiment.get("params", {}),
+                    metric_name=str(experiment.get("metric_name", "reward")),
+                    metric_value=None,
+                    status="crashed" if not agent_result.ok else "pending_agent",
+                    notes=(
+                        f"Autonomous backend={backend} exit_code={agent_result.exit_code}. "
+                        f"stdout={agent_result.stdout_log.name} stderr={agent_result.stderr_log.name}"
+                    ),
+                )
+                post_rows = _read_registry_rows(project_dir)
+
+            state = ProjectState.load(project_dir)
+            _sync_state_from_registry(state, project_dir)
+
+            new_rows = post_rows[len(pre_rows):]
+            for row in new_rows:
+                status = str(row.get("status", "unknown"))
+                metric_name = str(row.get("metric_name", state.best_metric_name or "reward"))
+                raw_metric = row.get("metric_value")
+                try:
+                    metric_value = float(raw_metric) if raw_metric not in ("", None) else None
+                except (TypeError, ValueError):
+                    metric_value = None
+                level = "success" if status == "completed" else "warning" if status != "crashed" else "error"
+                console(
+                    f"Run {str(row.get('run_id', '?'))[:8]}: status={status}  metric={metric_value if metric_value is not None else 'N/A'}",
+                    level,
+                )
+
+            advanced = _maybe_advance_phase(state)
+            if advanced:
+                console(f"Phase advanced to: {state.current_phase}", "info")
+
+            _finalize_build_mode_if_complete(project_dir=project_dir, state=state, results=new_rows)
+            _set_loop_flags(
+                state,
+                running=True,
+                backend=backend,
+                activity="idle_between_cycles",
+                active_run_id=None,
+                last_exit_code=agent_result.exit_code,
+            )
+            state.save()
+
+            journal.update_current_state_section(
+                {
+                    "Phase": state.current_phase,
+                    "Best run": state.best_run_id or "none",
+                    f"Best {state.best_metric_name}": (
+                        state.best_metric_value if state.best_metric_value is not None else "n/a"
+                    ),
+                    "Total runs": state.total_runs,
+                    "Kept / Discarded / Crashed": (
+                        f"{state.kept_runs} / {state.discarded_runs} / {state.crashed_runs}"
+                    ),
+                    "Current bottleneck": f"agent_backend={backend}",
+                    "Known dead ends": state.flags.get("last_refresh_reason") or "none",
+                }
+            )
+
+            console(
+                f"Cycle complete. Total runs: {state.total_runs}  Best {state.best_metric_name}: "
+                f"{state.best_metric_value if state.best_metric_value is not None else 'N/A'}",
+                "success",
+            )
+
+            cycle_count += 1
+            if once:
+                break
+            time.sleep(_AGENT_LOOP_SLEEP_SECONDS)
     finally:
         signal.signal(signal.SIGINT, old_handler)
-
-    # -----------------------------------------------------------------------
-    # Record results and update state.
-    # -----------------------------------------------------------------------
-    for result in results:
-        run_id       = result["run_id"]
-        metric_name  = result["metric_name"]
-        metric_value = result.get("metric_value")
-        status       = result["status"]
-        hypothesis   = result.get("hypothesis", "")
-        params       = result.get("params", {})
-        notes        = result.get("notes", "")
-
-        state.total_runs += 1
-        if status == "completed":
-            state.kept_runs += 1
-            if metric_value is not None:
-                improved = state.update_best(run_id, metric_value, metric_name)
-                if improved:
-                    console(
-                        f"New best: {metric_name}={metric_value:.4f}  (run {run_id[:8]})",
-                        "success",
-                    )
-        elif status == "crashed":
-            state.crashed_runs += 1
-        else:
-            state.discarded_runs += 1
-
-        _append_registry(
-            project_dir,
-            run_id=run_id,
-            hypothesis=hypothesis,
-            params=params,
-            metric_name=metric_name,
-            metric_value=metric_value,
-            status=status,
-            notes=notes,
+        state = ProjectState.load(project_dir)
+        _sync_state_from_registry(state, project_dir)
+        _set_loop_flags(
+            state,
+            running=False,
+            backend=backend,
+            activity="stopped",
+            active_run_id=None,
+            last_exit_code=state.flags.get("last_agent_exit_code"),
         )
+        state.save()
 
-        level = "success" if status == "completed" else "warning" if status != "crashed" else "error"
-        console(
-            f"Run {run_id[:8]}: status={status}  "
-            f"metric={metric_value if metric_value is not None else 'N/A'}",
-            level,
-        )
-
-    # Phase advancement.
-    advanced = _maybe_advance_phase(state)
-    if advanced:
-        console(f"Phase advanced to: {state.current_phase}", "info")
-
-    _finalize_build_mode_if_complete(project_dir=project_dir, state=state, results=results)
-
-    state.save()
-    console(
-        f"Loop complete. Total runs: {state.total_runs}  "
-        f"Best {state.best_metric_name}: "
-        f"{state.best_metric_value if state.best_metric_value is not None else 'N/A'}",
-        "success",
-    )
     return 0
 
 

@@ -1,6 +1,6 @@
 # DRL AutoResearch
 
-Autonomous DRL research workflow manager with orchestrator-led training loops, hard-rule guardrails, structured logs, and a local dashboard.
+Autonomous DRL research workflow manager with orchestrator-led agent loops, hard-rule guardrails, structured logs, and a local dashboard.
 
 ## Project Lineage
 
@@ -16,9 +16,10 @@ The main research/training orchestration logic remains centered on the original 
 
 ## Feature Overview
 
-### 1. Orchestrator-controlled training loop
+### 1. Orchestrator-controlled agent loop
 
-- `drl-autoresearch run` is orchestrator-first.
+- `drl-autoresearch run` is orchestrator-first and continuous by default.
+- `run` launches Codex or Claude Code as the execution backend for each cycle.
 - Orchestrator selects the next experiment candidate.
 - If orchestrator cannot produce one, local fallback generation is used.
 - Phase and loop state are persisted in `.drl_autoresearch/state.json`.
@@ -100,6 +101,9 @@ Design intent:
 Dashboard includes workflow snapshot fields such as:
 
 - current mode
+- loop running / idle state
+- active run id
+- current agent backend
 - bootstrap started/completed state
 - refresh cooldown remaining runs
 - last refresh reason
@@ -218,11 +222,19 @@ Behavior summary:
 
 - In `build` mode:
   - bootstrap research + compact implementation plan happens first
-  - then normal experiment loop begins
+  - then the controller keeps launching agent-driven coding/training cycles
   - bootstrap plan folder is removed after build bootstrap completion
   - compact summary is written to project log/journal
 - In `improve` mode:
-  - immediate iterative optimization loop
+  - immediate continuous agent-driven optimization loop
+
+Runtime notes:
+
+- `run` now stays alive until interrupted, convergence is reached, or a hard policy block stops it.
+- The controller launches Codex or Claude Code in autonomous mode for each cycle.
+- Use `--once` if you want a single cycle and exit.
+- Use `--agent-backend codex` or `--agent-backend claude` to force one backend.
+- Autonomous runs require onboarding permission policy `open`, `project-only`, or `bootstrap-only`.
 
 ### Step 4: Monitor and intervene when needed
 
@@ -289,7 +301,7 @@ drl-autoresearch doctor [--project-dir DIR] [--fix]
 ### Run
 
 ```bash
-drl-autoresearch run [--project-dir DIR] [--parallel N] [--dry-run]
+drl-autoresearch run [--project-dir DIR] [--parallel N] [--dry-run] [--once] [--agent-backend {auto,codex,claude}]
 ```
 
 ### Resume
@@ -314,10 +326,11 @@ drl-autoresearch dashboard [--project-dir DIR] [--port PORT]
 - Build bootstrap plans are intentionally compact and temporary.
 - Stuck refresh is cooldown-controlled to prevent repetitive research churn.
 - Custom skills are designed to be concise and technique-oriented, not verbose implementation documents.
-- Existing core training loop behavior is preserved; new features are additive and workflow-structuring.
+- Existing backbone files remain the source of truth: `.drl_autoresearch/`, `logs/`, `skills/`, compact spec files, dashboard artifacts, and `NON_NEGOTIABLE_RULES.md`.
 
 ## Known Limits
 
 - `doctor --fix` is best-effort and depends on package index/network reachability.
 - Checks reflect the interpreter context used to run the CLI.
 - Dashboard is local HTTP and intended for local/private usage.
+- Continuous autonomous runs depend on a working `codex` or `claude` CLI being installed on the machine.

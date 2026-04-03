@@ -15,8 +15,9 @@ to a live dashboard. You interact with it through its CLI.
 drl-autoresearch doctor              # check environment (run first)
 drl-autoresearch status              # current phase, best run, counters
 drl-autoresearch plan [--refresh]    # ranked experiment plan
-drl-autoresearch run [--dry-run]     # start the experiment loop
-drl-autoresearch run --parallel N    # run N experiments concurrently
+drl-autoresearch run [--dry-run]     # start the continuous agent loop
+drl-autoresearch run --once          # run one autonomous agent cycle
+drl-autoresearch run --agent-backend codex
 drl-autoresearch check --action X    # gate any action against hard rules
 drl-autoresearch research            # trigger mid-training research refresh
 drl-autoresearch dashboard --port 8765 &   # start live dashboard
@@ -78,16 +79,16 @@ Action types: `edit_reward` | `edit_eval` | `edit_env` | `install_package` |
 
 Exit 0 = allowed. Exit 1 = blocked — do not proceed. Respect the result.
 
-## The Experiment Loop
+## Continuous Runtime Model
 
-1. `drl-autoresearch plan` → read the recommended experiment
-2. `drl-autoresearch check --action <type>` → gate the change
-3. Make exactly ONE code change
-4. Run training and capture: eval metric, wall time, GPU memory, exit code
-5. Keep if eval improved > 0.5% over best, otherwise discard and `git checkout -- .`
-6. Write to registry (see format below)
-7. `drl-autoresearch status` to confirm registry updated
-8. Go to step 1
+`drl-autoresearch run` is the controller. It keeps selecting the next
+experiment and launches Codex or Claude Code for each autonomous cycle.
+
+- In `build` mode, bootstrap/build tasks happen first, then continuous training and improvement cycles continue.
+- In `improve` mode, the controller starts continuous optimization cycles immediately.
+- The live loop state is written into `.drl_autoresearch/state.json` and exposed in the dashboard.
+
+Use `drl-autoresearch run --once` if you want one autonomous cycle only.
 
 ## Writing to the Experiment Registry
 

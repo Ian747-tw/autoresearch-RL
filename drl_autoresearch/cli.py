@@ -144,6 +144,8 @@ def _cmd_run(args: argparse.Namespace) -> int:
         project_dir=project_dir,
         parallel=args.parallel,
         dry_run=args.dry_run,
+        once=getattr(args, "once", False),
+        agent_backend=getattr(args, "agent_backend", "auto"),
     )
 
 
@@ -385,6 +387,17 @@ def _build_parser() -> argparse.ArgumentParser:
             "Validate the plan and print what would be executed without "
             "actually running any experiments."
         ),
+    )
+    p_run.add_argument(
+        "--once",
+        action="store_true",
+        help="Run a single autonomous agent cycle and exit.",
+    )
+    p_run.add_argument(
+        "--agent-backend",
+        choices=["auto", "codex", "claude"],
+        default="auto",
+        help="Which coding-agent CLI to use for autonomous cycles (default: auto).",
     )
     p_run.set_defaults(func=_cmd_run)
 

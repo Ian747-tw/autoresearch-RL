@@ -106,9 +106,9 @@ Tell the user:
 # Start dashboard (optional but recommended)
 drl-autoresearch dashboard &
 
-# Run a dry-run to validate the plan
-drl-autoresearch run --dry-run
+# Run one autonomous cycle to validate the runtime
+drl-autoresearch run --once
 
-# Start the autonomous experiment loop
+# Start the continuous autonomous experiment loop
 /drl-run
 ```

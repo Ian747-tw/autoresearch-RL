@@ -120,6 +120,12 @@ class MetricsCollector:
             if entry.get("status") == "running":
                 active_run_id = entry.get("run_id")
                 break
+        if active_run_id is None:
+            flags = state.get("flags", {})
+            if isinstance(flags, dict):
+                flagged_run_id = flags.get("active_run_id")
+                if isinstance(flagged_run_id, str) and flagged_run_id.strip():
+                    active_run_id = flagged_run_id.strip()
 
         top_runs = self.collect_best_models(n=5, timeline=timeline)
 
@@ -189,6 +195,11 @@ class MetricsCollector:
 
         return {
             "project_mode": flags.get("project_mode", "improve"),
+            "loop_running": bool(flags.get("loop_running", False)),
+            "current_activity": flags.get("current_activity"),
+            "agent_backend": flags.get("agent_backend"),
+            "active_run_id": flags.get("active_run_id"),
+            "last_agent_exit_code": flags.get("last_agent_exit_code"),
             "build_bootstrap_started": bool(flags.get("build_bootstrap_started", False)),
             "build_bootstrap_complete": bool(flags.get("build_bootstrap_complete", True)),
             "build_bootstrap_research_applied": bool(

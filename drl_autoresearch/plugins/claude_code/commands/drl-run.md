@@ -1,8 +1,8 @@
-# /drl-run — Autonomous DRL Experiment Loop
+# /drl-run — Autonomous DRL Runtime
 
-You are the DRL research agent. Run the autonomous experiment loop until the
-user interrupts or convergence is detected. This command is designed for
-overnight unattended runs.
+You are the DRL research agent. Use the DRL AutoResearch controller runtime.
+It is designed for unattended runs and will keep launching autonomous cycles
+until interrupted or convergence is detected.
 
 ## Before starting
 
@@ -28,82 +28,28 @@ overnight unattended runs.
 
 If any CRITICAL incidents are open, do not start experiments. Report to user first.
 
-## The experiment loop
+## Runtime entrypoint
 
-Repeat indefinitely until interrupted or converged:
+Start the controller from the project root:
 
-### 1. Decide next experiment
-
-```
-drl-autoresearch plan --project-dir .
+```bash
+drl-autoresearch run --project-dir .
 ```
 
-This shows the orchestrator's recommendation. Always prefer the orchestrator's
-suggestion unless you have strong evidence it is wrong. If you disagree, log why.
+Useful variants:
 
-### 2. Check rules before making changes
-
-For EVERY planned code change, run:
-```
-drl-autoresearch check --project-dir . --action <action_type> --details '{"description": "..."}'
+```bash
+drl-autoresearch run --project-dir . --once
+drl-autoresearch run --project-dir . --agent-backend claude
+drl-autoresearch run --project-dir . --agent-backend codex
 ```
 
-Action types: `edit_reward`, `edit_eval`, `edit_env`, `install_package`, `exceed_compute`
+Controller behavior:
 
-If the check returns BLOCKED: do not proceed. Log the reason and pick a different experiment.
-If the check returns REQUIRES_CONFIRMATION: pause and ask the user.
-
-### 3. Make ONE change at a time
-
-- Change exactly ONE thing per experiment (unless explicitly designing a bundle ablation)
-- Use a clear git commit message: `experiment: <hypothesis> — <specific change>`
-- Example: `experiment: test higher entropy coeff — entropy_coef 0.01 → 0.05`
-
-### 4. Run the experiment
-
-Execute the project's training script (check `CLAUDE.md` for the exact command).
-Capture:
-- Final eval metric (the real metric from `USER_SPEC.md`, not just train reward)
-- Wall-clock time
-- Peak GPU memory usage
-- Exit code (0 = success, non-zero = crash)
-
-### 5. Evaluate on the held-out eval set
-
-NEVER skip evaluation. NEVER change the eval protocol between runs.
-Use the fixed eval seed from `.drl_autoresearch/policy.yaml`.
-Record: `eval_reward_mean`, `eval_reward_std`, `success_rate`.
-
-### 6. Keep or discard decision
-
-Compare eval metric to CURRENT BEST (never compare to train metric):
-- **Improved > 0.5% over best**: KEEP — advance the git state
-- **No improvement or degraded**: DISCARD — `git checkout -- .` to revert
-- **Crashed** (exit code != 0, NaN loss, OOM): DISCARD — log incident
-
-When discarding: always log WHY this direction did not work.
-
-### 7. Log the result
-
-Append to `logs/experiment_registry.tsv`:
-```
-{run_id}\t{parent_id}\t{timestamp}\tclaude\t{branch}\t{commit}\t{env}\t{algo}\t{config}\t{change_summary}\t{hypothesis}\tok\t{train_mean}\t{train_std}\t{eval_mean}\t{eval_std}\t\t\t\t\t1\t{wall_clock}\t{mem_gb}\t0\tdone\t{keep/discard}\t{notes}
-```
-
-Also run: `drl-autoresearch status --project-dir .` to verify the registry updated.
-
-### 8. Research refresh check
-
-After every 5 experiments, and immediately if ANY of these occur:
-- 3+ consecutive runs with no improvement
-- Train reward up but eval metric flat or down
-- Loss is NaN or > 10× starting value
-- Reward suspiciously high but real objective not improving
-- Same failure mode appearing 3+ times
-
-Run `/drl-research` to trigger a mid-training research refresh.
-
-### 9. Loop — go back to step 1
+- `build` mode: bootstrap/build work first, then continuous coding and training cycles
+- `improve` mode: immediate continuous optimization cycles
+- live loop status is written to `.drl_autoresearch/state.json` and shown in the dashboard
+- autonomous execution requires permissive onboarding policy such as `open`
 
 ## Convergence detection
 
