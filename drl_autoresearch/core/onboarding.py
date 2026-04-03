@@ -141,17 +141,17 @@ def _collect_multiline_text(prompt: str, default: Optional[str] = None) -> Optio
     try:
         from prompt_toolkit.application import Application
         from prompt_toolkit.key_binding import KeyBindings
-        from prompt_toolkit.layout import HSplit, Layout
-        from prompt_toolkit.layout.containers import Window
-        from prompt_toolkit.layout.controls import FormattedTextControl
-        from prompt_toolkit.layout.dimension import Dimension
-        from prompt_toolkit.widgets import Box, Frame, TextArea
+        from prompt_toolkit.layout import Layout
+        from prompt_toolkit.widgets import Box, Dialog, TextArea
+
         text_area = TextArea(
             text=default or "",
             multiline=True,
             wrap_lines=True,
             scrollbar=True,
             focus_on_click=True,
+            width=None,
+            height=12,
         )
 
         bindings = KeyBindings()
@@ -160,25 +160,20 @@ def _collect_multiline_text(prompt: str, default: Optional[str] = None) -> Optio
         def _submit(event) -> None:
             event.app.exit(result=text_area.text.rstrip("\n"))
 
-        help_parts = ["Enter submit"]
+        @bindings.add("c-c")
+        @bindings.add("c-d")
+        def _cancel(event) -> None:
+            event.app.exit(result=None)
 
         root = Box(
-            body=HSplit(
-                [
-                    Window(
-                        content=FormattedTextControl(prompt),
-                        height=Dimension(preferred=2),
-                    ),
-                    Window(
-                        content=FormattedTextControl("Paste or type structured input below."),
-                        height=1,
-                    ),
-                    Frame(text_area),
-                    Window(
-                        content=FormattedTextControl("  ".join(help_parts)),
-                        height=1,
-                    ),
-                ]
+            body=Dialog(
+                title=prompt,
+                body=Box(
+                    body=text_area,
+                    padding=0,
+                ),
+                buttons=[],
+                with_background=True,
             ),
             padding=1,
         )
@@ -190,6 +185,8 @@ def _collect_multiline_text(prompt: str, default: Optional[str] = None) -> Optio
             mouse_support=True,
         )
         text = app.run()
+        if text is None:
+            return None
         return str(text).strip() or None
     except Exception:
         print(f"{prompt}")
