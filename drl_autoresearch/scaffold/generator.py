@@ -53,6 +53,9 @@ class OnboardingResult:
         eval_modification_allowed: bool = False,
         offline_data_allowed: bool = False,
         imitation_allowed: bool = False,
+        modification_policy: str = "all",
+        offline_data_policy: str = "no",
+        imitation_policy: str = "no",
         algorithm_recommendations: str = "PPO, DQN, A2C",
         user_rules: Optional[list[str]] = None,
         hardware_summary: str = "",
@@ -74,6 +77,9 @@ class OnboardingResult:
         self.eval_modification_allowed = eval_modification_allowed
         self.offline_data_allowed = offline_data_allowed
         self.imitation_allowed = imitation_allowed
+        self.modification_policy = modification_policy
+        self.offline_data_policy = offline_data_policy
+        self.imitation_policy = imitation_policy
         self.algorithm_recommendations = algorithm_recommendations
         self.user_rules = user_rules or []
         self.hardware_summary = hardware_summary
@@ -379,11 +385,9 @@ class ScaffoldGenerator:
             wall_clock_budget=ob.wall_clock_budget,
             compute_budget=ob.compute_budget,
             other_information=ob.other_information or "None provided.",
-            reward_modification_allowed=str(ob.reward_modification_allowed),
-            env_modification_allowed=str(ob.env_modification_allowed),
-            eval_modification_allowed=str(ob.eval_modification_allowed),
-            offline_data_allowed=str(ob.offline_data_allowed),
-            imitation_allowed=str(ob.imitation_allowed),
+            modification_policy=ob.modification_policy,
+            offline_data_policy=ob.offline_data_policy,
+            imitation_policy=ob.imitation_policy,
             algorithm_recommendations=algo_block,
         )
 
@@ -1321,11 +1325,9 @@ _USER_SPEC_MD_TEMPLATE = """\
 - **Other Information**: {other_information}
 
 ## Constraints
-- Reward modification: {reward_modification_allowed}
-- Environment modification: {env_modification_allowed}
-- Eval modification: {eval_modification_allowed}
-- Offline data: {offline_data_allowed}
-- Imitation learning: {imitation_allowed}
+- Allowed modification scope: {modification_policy}
+- Offline data policy: {offline_data_policy}
+- Imitation learning policy: {imitation_policy}
 
 ## Token Philosophy
 - Keep outputs compact and token-efficient.

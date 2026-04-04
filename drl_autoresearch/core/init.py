@@ -300,6 +300,7 @@ def run(
             selected_skill_pack=selected_skill_pack,
             selected_project_mode=selected_project_mode,
         )
+        _sync_onboarding_docs(project_dir=project_dir, onboarding_result=onboarding_result)
         _write_compact_spec_artifacts(project_dir=project_dir)
 
         # Initialise / update state.json.
@@ -618,33 +619,12 @@ def _install_skill_pack(
 
 def _generate_bundled_drl_skills(project_dir: Path, onboarding_result: object) -> None:
     try:
-        from drl_autoresearch.scaffold.generator import (
-            OnboardingResult as ScaffoldOnboardingResult,
-            ScaffoldGenerator,
-        )
+        from drl_autoresearch.scaffold.generator import ScaffoldGenerator
 
-        project = getattr(onboarding_result, "project", {}) or {}
-        permissions = getattr(onboarding_result, "permissions", {}) or {}
-        hard_rules = getattr(onboarding_result, "hard_rules", []) or []
-        hardware = getattr(onboarding_result, "hardware", None)
-        python_env = getattr(onboarding_result, "python_env", {}) or {}
+        scaffold_result = _build_scaffold_onboarding_result(project_dir, onboarding_result)
         gen = ScaffoldGenerator(
             project_dir=project_dir,
-            onboarding_result=ScaffoldOnboardingResult(
-                project_name=project.get("name") or project_dir.name,
-                environment=project.get("env") or "unknown",
-                obs_type=project.get("obs_type") or "unknown",
-                action_space=project.get("action_space") or "unknown",
-                objective=project.get("objective") or "maximize episode reward",
-                success_metric=project.get("success_metric") or "mean_eval_reward",
-                target_value="tool_decides",
-                wall_clock_budget=str(project.get("wall_clock_goal_hours") or "auto"),
-                compute_budget=str(project.get("compute_budget") or "auto"),
-                other_information=project.get("other_information") or "",
-                user_rules=[rule for rule in hard_rules if rule and rule != "none"],
-                hardware_summary=_format_hardware_summary(hardware),
-                python_env_summary=_format_python_env_summary(python_env),
-            ),
+            onboarding_result=scaffold_result,
         )
         gen.generate_skills()
     except Exception as exc:  # noqa: BLE001
@@ -680,6 +660,47 @@ def _remove_custom_skill_generator(project_dir: Path) -> None:
     if path.exists():
         path.unlink()
         console("Removed stale custom skill generator backend.", "info")
+
+
+def _sync_onboarding_docs(project_dir: Path, onboarding_result: object) -> None:
+    """Rewrite managed onboarding-derived docs from the latest answers."""
+    from drl_autoresearch.scaffold.generator import ScaffoldGenerator
+
+    gen = ScaffoldGenerator(
+        project_dir=project_dir,
+        onboarding_result=_build_scaffold_onboarding_result(project_dir, onboarding_result),
+    )
+    user_spec = project_dir / "USER_SPEC.md"
+    user_spec.write_text(gen._render_user_spec_md(), encoding="utf-8")  # noqa: SLF001
+    console(f"Updated {user_spec.relative_to(project_dir)}", "success")
+
+
+def _build_scaffold_onboarding_result(project_dir: Path, onboarding_result: object) -> object:
+    from drl_autoresearch.scaffold.generator import OnboardingResult as ScaffoldOnboardingResult
+
+    project = getattr(onboarding_result, "project", {}) or {}
+    hard_rules = getattr(onboarding_result, "hard_rules", []) or []
+    hardware = getattr(onboarding_result, "hardware", None)
+    python_env = getattr(onboarding_result, "python_env", {}) or {}
+
+    return ScaffoldOnboardingResult(
+        project_name=project.get("name") or project_dir.name,
+        environment=project.get("env") or "unknown",
+        obs_type=project.get("obs_type") or "unknown",
+        action_space=project.get("action_space") or "unknown",
+        objective=project.get("objective") or "maximize episode reward",
+        success_metric=project.get("success_metric") or "mean_eval_reward",
+        target_value="tool_decides",
+        wall_clock_budget=str(project.get("wall_clock_goal_hours") or "auto"),
+        compute_budget=str(project.get("compute_budget") or "auto"),
+        other_information=project.get("other_information") or "",
+        modification_policy=str(project.get("modifications_allowed") or "unspecified"),
+        offline_data_policy=str(project.get("offline_data_allowed") or "unspecified"),
+        imitation_policy=str(project.get("imitation_learning_allowed") or "unspecified"),
+        user_rules=[rule for rule in hard_rules if rule and rule != "none"],
+        hardware_summary=_format_hardware_summary(hardware),
+        python_env_summary=_format_python_env_summary(python_env),
+    )
 
 
 def _build_skill_generator_context(project_dir: Path, onboarding_result: object) -> str:
