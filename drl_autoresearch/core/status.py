@@ -75,6 +75,13 @@ def run(project_dir: Path) -> int:
         return 1
 
     state = ProjectState.load(project_dir)
+    try:
+        from drl_autoresearch.core.run import _sync_state_from_registry
+
+        _sync_state_from_registry(state, project_dir)
+        state.save()
+    except Exception:
+        pass
 
     # Header.
     print()

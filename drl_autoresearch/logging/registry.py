@@ -78,6 +78,15 @@ def _make_run_id() -> str:
     return f"run_{_now_iso()}_{_rand4()}"
 
 
+def _classify_run_outcome(status: str, keep_decision: str = "") -> str:
+    normalized = str(status or "").strip().lower()
+    if normalized == "completed":
+        return "keep" if str(keep_decision or "").strip().lower() == "keep" else "discard"
+    if normalized == "crashed":
+        return "crash"
+    return "discard"
+
+
 def _escape_tsv(value: str) -> str:
     """Escape tabs and newlines so a field never breaks the TSV structure."""
     return str(value).replace("\\", "\\\\").replace("\t", "\\t").replace("\n", "\\n")
@@ -301,7 +310,11 @@ class ExperimentRegistry:
         return runs[-n:] if len(runs) >= n else runs
 
     def get_kept(self) -> list[RunRecord]:
-        return [r for r in self._read_rows() if r.keep_decision == "keep"]
+        return [
+            r
+            for r in self._read_rows()
+            if _classify_run_outcome(r.status, r.keep_decision) == "keep"
+        ]
 
     # ------------------------------------------------------------------
     # Analytics
@@ -347,10 +360,11 @@ class ExperimentRegistry:
         runs = self._read_rows()
         patterns: dict[str, int] = {}
         for run in runs:
-            if run.status == "crashed":
+            outcome = _classify_run_outcome(run.status, run.keep_decision)
+            if outcome == "crash":
                 key = "crash"
                 patterns[key] = patterns.get(key, 0) + 1
-            if run.keep_decision == "discard":
+            if outcome == "discard":
                 key = "discarded"
                 patterns[key] = patterns.get(key, 0) + 1
             if run.constraint_violations is not None and run.constraint_violations > 0:
@@ -360,9 +374,9 @@ class ExperimentRegistry:
 
     def summary_stats(self) -> dict:
         runs = self._read_rows()
-        kept = [r for r in runs if r.keep_decision == "keep"]
-        crashed = [r for r in runs if r.status == "crashed"]
-        discarded = [r for r in runs if r.keep_decision == "discard"]
+        kept = [r for r in runs if _classify_run_outcome(r.status, r.keep_decision) == "keep"]
+        crashed = [r for r in runs if _classify_run_outcome(r.status, r.keep_decision) == "crash"]
+        discarded = [r for r in runs if _classify_run_outcome(r.status, r.keep_decision) == "discard"]
 
         eval_values = [
             r.get_metric("eval_reward_mean")

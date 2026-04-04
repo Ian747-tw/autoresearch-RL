@@ -118,13 +118,54 @@ def _read_registry_rows(project_dir: Path) -> list[dict[str, Any]]:
                 "metric_name": metric_name,
                 "metric_value": metric_value,
                 "status": record.status,
+                "keep_decision": record.keep_decision,
                 "notes": record.notes,
             }
         )
     return rows
 
 
+def _classify_run_outcome(status: str, keep_decision: str = "") -> str:
+    """Map registry status/decision to one keep/discard/crash bucket."""
+    normalized = str(status or "").strip().lower()
+    if normalized == "completed":
+        return "keep" if str(keep_decision or "").strip().lower() == "keep" else "discard"
+    if normalized == "crashed":
+        return "crash"
+    return "discard"
+
+
+def _normalize_registry_keep_decisions(project_dir: Path) -> None:
+    """Rewrite keep/discard so only improving completed runs remain kept."""
+    registry = ExperimentRegistry(project_dir=project_dir)
+    runs = registry.get_history()
+    best_metric_name: Optional[str] = None
+    best_metric_value: Optional[float] = None
+
+    for run in runs:
+        metric_name = (run.custom_metric_name or "reward").strip() or "reward"
+        metric_value = (
+            run.custom_metric_value
+            if run.custom_metric_name
+            else run.eval_reward_mean
+        )
+
+        desired_keep = "discard"
+        if run.status == "completed" and metric_value is not None:
+            if best_metric_value is None:
+                desired_keep = "keep"
+                best_metric_name = metric_name
+                best_metric_value = metric_value
+            elif metric_name == best_metric_name and metric_value > best_metric_value:
+                desired_keep = "keep"
+                best_metric_value = metric_value
+
+        if run.keep_decision != desired_keep:
+            registry.update_run(run.run_id, {"keep_decision": desired_keep})
+
+
 def _sync_state_from_registry(state: ProjectState, project_dir: Path) -> list[dict[str, Any]]:
+    _normalize_registry_keep_decisions(project_dir)
     rows = _read_registry_rows(project_dir)
     state.total_runs = len(rows)
     state.kept_runs = 0
@@ -137,9 +178,10 @@ def _sync_state_from_registry(state: ProjectState, project_dir: Path) -> list[di
 
     for row in rows:
         status = str(row.get("status", "")).strip()
-        if status == "completed":
+        outcome = _classify_run_outcome(status, str(row.get("keep_decision", "")))
+        if outcome == "keep":
             state.kept_runs += 1
-        elif status == "crashed":
+        elif outcome == "crash":
             state.crashed_runs += 1
         else:
             state.discarded_runs += 1
@@ -150,7 +192,7 @@ def _sync_state_from_registry(state: ProjectState, project_dir: Path) -> list[di
             metric_value = float(raw_value) if raw_value not in ("", None) else None
         except (TypeError, ValueError):
             metric_value = None
-        if status == "completed" and metric_value is not None:
+        if outcome == "keep" and metric_value is not None:
             if best_metric_value is None or metric_value > best_metric_value:
                 best_metric_value = metric_value
                 best_metric_name = metric_name
@@ -347,8 +389,6 @@ def _mark_agent_cycle_failed(
         registry.update_run(
             run_id,
             {
-                "status": "crashed",
-                "keep_decision": "discard",
                 "notes": violation_notes,
                 "rules_checked": "contract_violation",
             },
@@ -365,7 +405,7 @@ def _mark_agent_cycle_failed(
             change_summary=config_summary,
             rules_checked="contract_violation",
             custom_metric_name="" if metric_name == "reward" else metric_name,
-            status="crashed",
+            status="pending_agent",
             keep_decision="discard",
             notes=violation_notes,
         )
@@ -1061,15 +1101,17 @@ def run(
             new_rows = post_rows[len(pre_rows):]
             for row in new_rows:
                 status = str(row.get("status", "unknown"))
+                keep_decision = str(row.get("keep_decision", ""))
+                outcome = _classify_run_outcome(status, keep_decision)
                 metric_name = str(row.get("metric_name", state.best_metric_name or "reward"))
                 raw_metric = row.get("metric_value")
                 try:
                     metric_value = float(raw_metric) if raw_metric not in ("", None) else None
                 except (TypeError, ValueError):
                     metric_value = None
-                level = "success" if status == "completed" else "warning" if status != "crashed" else "error"
+                level = "success" if outcome == "keep" else "warning" if outcome == "discard" else "error"
                 console(
-                    f"Run {str(row.get('run_id', '?'))[:8]}: status={status}  metric={metric_value if metric_value is not None else 'N/A'}",
+                    f"Run {str(row.get('run_id', '?'))[:8]}: status={status}  keep={keep_decision or 'discard'}  metric={metric_value if metric_value is not None else 'N/A'}",
                     level,
                 )
 

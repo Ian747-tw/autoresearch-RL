@@ -97,7 +97,8 @@ def _print_session_checkpoint(project_dir: Path) -> None:
     for r in recent:
         rid = (r.get("run_id") or "?")[:8]
         status = r.get("status", "unknown")
-        outcomes.append(f"{rid}:{status}")
+        keep = r.get("keep_decision", "") or "discard"
+        outcomes.append(f"{rid}:{status}/{keep}")
     outcomes_str = ", ".join(outcomes) if outcomes else "no recent runs"
 
     incident_signal = _detect_last_incident_signal(project_dir) or "none"
@@ -127,6 +128,16 @@ def run(
 
     console("Resuming session with compact context sync.", "info")
 
+    try:
+        from drl_autoresearch.core.run import _sync_state_from_registry
+        from drl_autoresearch.core.state import ProjectState
+
+        state = ProjectState.load(project_dir)
+        _sync_state_from_registry(state, project_dir)
+        state.save()
+    except Exception:
+        pass
+
     # Reuse existing status output for continuity.
     from drl_autoresearch.core import status as status_mod
 
@@ -148,4 +159,3 @@ def run(
     from drl_autoresearch.core import run as run_mod
 
     return run_mod.run(project_dir=project_dir, parallel=parallel, dry_run=dry_run)
-

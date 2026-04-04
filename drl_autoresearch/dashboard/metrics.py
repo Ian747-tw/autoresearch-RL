@@ -112,6 +112,7 @@ class MetricsCollector:
         """Read all logs and aggregate into DashboardData."""
         state = self._load_state()
         timeline = self.collect_experiment_timeline()
+        derived = self._derive_frontier_state(timeline, state.get("best_metric_name", "reward"))
         training_curves, eval_curves = self._split_curves(timeline)
 
         # Active run: most recent "running" entry from timeline
@@ -138,13 +139,13 @@ class MetricsCollector:
             project_name=state.get("project_name", self.project_dir.name),
             current_phase=state.get("current_phase", "research"),
             active_run_id=active_run_id,
-            total_runs=state.get("total_runs", len(timeline)),
-            kept_runs=state.get("kept_runs", 0),
-            discarded_runs=state.get("discarded_runs", 0),
-            crashed_runs=state.get("crashed_runs", 0),
-            best_run_id=state.get("best_run_id"),
-            best_metric_value=state.get("best_metric_value"),
-            best_metric_name=state.get("best_metric_name", "reward"),
+            total_runs=derived["total_runs"],
+            kept_runs=derived["kept_runs"],
+            discarded_runs=derived["discarded_runs"],
+            crashed_runs=derived["crashed_runs"],
+            best_run_id=derived["best_run_id"],
+            best_metric_value=derived["best_metric_value"],
+            best_metric_name=derived["best_metric_name"],
             experiment_timeline=timeline,
             training_curves=training_curves,
             eval_curves=eval_curves,
@@ -174,6 +175,48 @@ class MetricsCollector:
     def _next_experiment(self, state: dict) -> Optional[dict]:
         queue = state.get("queue", [])
         return queue[0] if queue else None
+
+    def _derive_frontier_state(self, timeline: list[dict], metric_name: str) -> dict:
+        total_runs = len(timeline)
+        kept_runs = 0
+        discarded_runs = 0
+        crashed_runs = 0
+        best_run_id: Optional[str] = None
+        best_metric_value: Optional[float] = None
+        best_metric_name = metric_name or "reward"
+
+        for row in timeline:
+            status = str(row.get("status", "") or "")
+            keep_decision = str(row.get("keep_decision", "") or "")
+            if status == "crashed":
+                crashed_runs += 1
+                continue
+            if status == "completed" and keep_decision == "keep":
+                kept_runs += 1
+            else:
+                discarded_runs += 1
+
+            if status == "completed" and keep_decision == "keep":
+                metric_value = row.get("eval_reward_mean")
+                if metric_value is None:
+                    metric_value = row.get("custom_metric_value")
+                row_metric_name = row.get("custom_metric_name") or best_metric_name
+                if metric_value is not None and (
+                    best_metric_value is None or float(metric_value) > best_metric_value
+                ):
+                    best_metric_value = float(metric_value)
+                    best_run_id = row.get("run_id")
+                    best_metric_name = str(row_metric_name or best_metric_name)
+
+        return {
+            "total_runs": total_runs,
+            "kept_runs": kept_runs,
+            "discarded_runs": discarded_runs,
+            "crashed_runs": crashed_runs,
+            "best_run_id": best_run_id,
+            "best_metric_value": best_metric_value,
+            "best_metric_name": best_metric_name,
+        }
 
     def _load_policy_config(self) -> dict:
         yaml_path = self._config_dir / "policy.yaml"
@@ -380,6 +423,8 @@ class MetricsCollector:
                         "train_reward_std": row.get("train_reward_std"),
                         "eval_reward_mean": row.get("eval_reward_mean"),
                         "eval_reward_std": row.get("eval_reward_std"),
+                        "custom_metric_name": row.get("custom_metric_name", ""),
+                        "custom_metric_value": row.get("custom_metric_value"),
                         "wall_clock_seconds": row.get("wall_clock_seconds"),
                         "notes": row.get("notes", ""),
                         "agent": row.get("agent", ""),
