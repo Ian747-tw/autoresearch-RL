@@ -12,6 +12,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+from drl_autoresearch.core.state import ProjectState
+from drl_autoresearch.logging.registry import ExperimentRegistry
+
 # ---------------------------------------------------------------------------
 # Optional psutil import
 # ---------------------------------------------------------------------------
@@ -103,6 +106,30 @@ class MetricsCollector:
     def __init__(self, project_dir: Path) -> None:
         self.project_dir = Path(project_dir)
         self._config_dir = self.project_dir / CONFIG_DIR
+        self._ensure_backend_files()
+
+    def _ensure_backend_files(self) -> None:
+        """Create minimal durable dashboard backends if they are missing."""
+        self.project_dir.mkdir(parents=True, exist_ok=True)
+        self._config_dir.mkdir(parents=True, exist_ok=True)
+        (self.project_dir / "logs").mkdir(parents=True, exist_ok=True)
+        (self.project_dir / "logs" / "artifacts").mkdir(parents=True, exist_ok=True)
+
+        ExperimentRegistry(project_dir=self.project_dir).initialize()
+
+        state_path = self._config_dir / STATE_FILENAME
+        if not state_path.exists():
+            ProjectState(project_dir=self.project_dir, project_name=self.project_dir.name).save()
+
+        placeholders = {
+            INCIDENTS_FILENAME: "[]\n",
+            DECISIONS_FILENAME: "[]\n",
+            WORKERS_FILENAME: "[]\n",
+        }
+        for filename, content in placeholders.items():
+            path = self._config_dir / filename
+            if not path.exists():
+                path.write_text(content, encoding="utf-8")
 
     # ------------------------------------------------------------------
     # Main entry point
@@ -647,7 +674,10 @@ class MetricsCollector:
             timeline = self.collect_experiment_timeline()
 
         candidates = [
-            r for r in timeline if r.get(metric) is not None
+            r
+            for r in timeline
+            if r.get(metric) is not None
+            and r.get("status") == "completed"
         ]
         ranked = sorted(candidates, key=lambda r: r[metric], reverse=True)[:n]
 
