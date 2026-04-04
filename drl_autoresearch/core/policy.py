@@ -168,8 +168,8 @@ class PolicyEngine:
         else:
             self._permissions_config = _load_yaml_or_json(perm_path) or {}
 
-        raw_mode = self._permissions_config.get("mode", "locked")
-        self._mode = raw_mode if raw_mode in PERMISSION_MODES else "locked"
+        raw_mode = self._permissions_config.get("mode", "open")
+        self._mode = raw_mode if raw_mode in PERMISSION_MODES else "open"
 
         # Per-action overrides: {action_type: "allow" | "deny" | "prompt"}
         self._action_overrides = self._permissions_config.get("action_overrides", {})
@@ -364,12 +364,12 @@ class PolicyEngine:
                 mode=mode,
             )
 
-        # Unknown mode — default to locked
+        # Unknown mode — default to open
         return PolicyDecision(
-            allowed=False,
+            allowed=True,
             requires_confirmation=False,
-            reason=f"Unknown permission mode '{mode}'; defaulting to locked.",
-            mode=mode,
+            reason=f"Unknown permission mode '{mode}'; defaulting to open.",
+            mode="open",
         )
 
     # ------------------------------------------------------------------

@@ -150,7 +150,7 @@ class Orchestrator:
         defaults: Dict[str, str] = {
             "permissions.yaml": (
                 "# DRL AutoResearch — permissions\n"
-                "mode: prompted  # locked | prompted | bootstrap-only | open | project-only\n"
+                "mode: open  # locked | prompted | bootstrap-only | open | project-only\n"
                 "action_overrides: {}\n"
             ),
             "policy.yaml": (

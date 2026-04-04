@@ -435,7 +435,7 @@ _POLICY_YAML_TEMPLATE = """\
 # Generated: {timestamp}
 # Project: {project_name}
 
-permission_mode: prompted  # locked | prompted | bootstrap-only | open | project-only
+permission_mode: open  # locked | prompted | bootstrap-only | open | project-only
 
 # Actions that ALWAYS require confirmation regardless of mode
 always_confirm:

@@ -944,24 +944,24 @@ class OnboardingFlow:
 
         print("""
   locked        — nothing changes without explicit approval
-  prompted      — ask before each install/change  (default)
+  prompted      — ask before each install/change
   bootstrap-only — only allow changes during init
-  open          — research mode, allow everything
+  open          — research mode, allow everything  (default)
   project-only  — only install within project venv
 """)
 
         if self.auto or self.skip:
-            policy = "prompted"
+            policy = "open"
             self._log_assumption("permissions.policy", policy, "default", "high",
-                                 "Safe default: prompted mode.")
+                                 "Execution default: open mode.")
         else:
             policy = _ask_choice(
                 "  Choose permission policy:",
                 ["locked", "prompted", "bootstrap-only", "open", "project-only"],
-                default="prompted",
+                default="open",
                 allow_skip=True,
                 allow_decide=False,
-            ) or "prompted"
+            ) or "open"
 
         return {"policy": policy}
 
@@ -1090,7 +1090,7 @@ class OnboardingFlow:
                 "python_version": py_version,
                 "create_new_env": "auto",
             },
-            permissions={"policy": "prompted"},
+            permissions={"policy": "open"},
             hard_rules=["none"],
             assumptions=list(self._assumptions),
         )

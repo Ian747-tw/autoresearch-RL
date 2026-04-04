@@ -103,6 +103,7 @@ _PYTHON_ENV_YAML = textwrap.dedent("""\
 _PERMISSIONS_YAML = textwrap.dedent("""\
     # DRL AutoResearch — agent permissions
     # Controls what autonomous agents are allowed to do.
+    mode: open  # locked | prompted | bootstrap-only | open | project-only
 
     allow:
       modify_hyperparameters: true
@@ -272,6 +273,7 @@ def run(
         _write_if_missing(config_dir / "hardware.yaml",    _HARDWARE_YAML)
         _write_if_missing(config_dir / "python_env.yaml",  _PYTHON_ENV_YAML)
         _write_if_missing(config_dir / "permissions.yaml", _PERMISSIONS_YAML)
+        _sync_permission_mode(config_dir, onboarding_result)
 
         # Hard rules file at project root.
         _write_if_missing(project_dir / "NON_NEGOTIABLE_RULES.md", _RULES_MD)
@@ -352,6 +354,46 @@ def _write_if_missing(path: Path, content: str) -> None:
         return
     path.write_text(content, encoding="utf-8")
     console(f"Created {path.name}", "success")
+
+
+def _sync_permission_mode(config_dir: Path, onboarding_result: object) -> None:
+    """Ensure permissions config carries the onboarding-selected runtime mode."""
+    permissions = getattr(onboarding_result, "permissions", {}) or {}
+    selected_mode = permissions.get("policy") or "open"
+    if not isinstance(selected_mode, str) or not selected_mode.strip():
+        selected_mode = "open"
+
+    yaml_path = config_dir / "permissions.yaml"
+    if yaml_path.exists():
+        text = yaml_path.read_text(encoding="utf-8")
+        mode_line = (
+            f"mode: {selected_mode}  # locked | prompted | bootstrap-only | open | project-only"
+        )
+        if re.search(r"(?m)^mode:\s*", text):
+            updated = re.sub(r"(?m)^mode:\s*.*$", mode_line, text, count=1)
+        else:
+            lines = text.splitlines()
+            insert_at = 0
+            while insert_at < len(lines) and (
+                not lines[insert_at].strip() or lines[insert_at].lstrip().startswith("#")
+            ):
+                insert_at += 1
+            lines.insert(insert_at, mode_line)
+            updated = "\n".join(lines).rstrip("\n") + "\n"
+        if updated != text:
+            yaml_path.write_text(updated, encoding="utf-8")
+            console(f"Updated {yaml_path.name} mode to {selected_mode}", "success")
+        return
+
+    json_path = config_dir / "permissions.json"
+    if json_path.exists():
+        data = json.loads(json_path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            data = {}
+        if data.get("mode") != selected_mode:
+            data["mode"] = selected_mode
+            json_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+            console(f"Updated {json_path.name} mode to {selected_mode}", "success")
 
 
 def _refresh_project_managed_files(project_dir: Path) -> None:
@@ -600,7 +642,7 @@ def _build_skill_generator_context(project_dir: Path, onboarding_result: object)
         - Success metric: {project.get("success_metric") or "unspecified"}
         - Other information: {project.get("other_information") or "none provided"}
         - Modification policy: {project.get("modifications_allowed") or "unspecified"}
-        - Permission policy: {permissions.get("policy") or "prompted"}
+        - Permission policy: {permissions.get("policy") or "open"}
 
         Hard rules:
         {rules_block}

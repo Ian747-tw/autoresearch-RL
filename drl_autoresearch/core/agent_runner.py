@@ -56,7 +56,7 @@ def load_permission_policy(project_dir: Path) -> str:
         policy = permissions.get("policy")
         if isinstance(policy, str) and policy.strip():
             return policy.strip()
-    return "prompted"
+    return "open"
 
 
 def detect_backend(project_dir: Path, preferred: Optional[str] = None) -> Optional[str]:
