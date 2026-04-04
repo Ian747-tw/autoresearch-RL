@@ -1375,11 +1375,13 @@ This file must not be modified by agents.
   `exceed_compute` gate.
 - NEVER install packages in the global Python environment.  All installs
   must target the project-local environment.
+- ALWAYS determine at the start of each agent session whether training
+  should run on GPU or CPU, record the chosen device, and resolve GPU
+  setup first when GPU is expected. CPU is allowed for genuinely
+  short/lightweight runs where it is the better choice.
 - NEVER mix multiple major changes into one experiment (unless explicitly
   designed as a bundle ablation).
 - NEVER reuse random seeds across different experimental conditions.
-- NEVER silently change reward logic.  All reward modifications require
-  `edit_reward` approval and must be logged.
 - ALWAYS log what changed and why, in `experiment_registry.tsv`, before
   running an experiment.
 - ALWAYS revert changes that do not improve the eval metric, unless the

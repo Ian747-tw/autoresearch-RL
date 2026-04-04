@@ -175,6 +175,7 @@ def _cmd_resume(args: argparse.Namespace) -> int:
         parallel=args.parallel,
         dry_run=args.dry_run,
         no_run=args.no_run,
+        agent_backend=getattr(args, "agent_backend", "auto"),
     )
 
 
@@ -495,6 +496,12 @@ def _build_parser() -> argparse.ArgumentParser:
         "--no-run",
         action="store_true",
         help="Only perform resume sync/checkpoint; do not start the run loop.",
+    )
+    p_resume.add_argument(
+        "--agent-backend",
+        choices=["auto", "codex", "claude"],
+        default="auto",
+        help="Which coding-agent CLI to use when continuing after resume (default: auto).",
     )
     p_resume.set_defaults(func=_cmd_resume)
 

@@ -149,12 +149,16 @@ _RULES_MD = textwrap.dedent("""\
 
     10. GPU/CPU usage must stay within the configured project limits.
     11. Disk usage for checkpoints must stay within the configured project limits.
+    12. At the start of each agent session, determine whether training should run
+        on GPU or CPU, record the chosen device, and resolve GPU setup first when
+        GPU is expected. CPU is allowed for genuinely short/lightweight runs where
+        it is the better choice.
 
     ## Human override
 
-    12. **Never edit policy or permission config files** without explicit human approval.
-    13. **Never delete checkpoints** without explicit human approval.
-    14. **Never run ad hoc shell commands outside normal project execution** without
+    13. **Never edit policy or permission config files** without explicit human approval.
+    14. **Never delete checkpoints** without explicit human approval.
+    15. **Never run ad hoc shell commands outside normal project execution** without
         explicit human approval.
 """)
 

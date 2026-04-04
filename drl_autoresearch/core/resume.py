@@ -119,6 +119,7 @@ def run(
     parallel: int = 1,
     dry_run: bool = False,
     no_run: bool = False,
+    agent_backend: str = "auto",
 ) -> int:
     project_dir = Path(project_dir).resolve()
     config_dir = project_dir / ".drl_autoresearch"
@@ -158,4 +159,9 @@ def run(
     console("Starting autonomous loop after resume sync.", "info")
     from drl_autoresearch.core import run as run_mod
 
-    return run_mod.run(project_dir=project_dir, parallel=parallel, dry_run=dry_run)
+    return run_mod.run(
+        project_dir=project_dir,
+        parallel=parallel,
+        dry_run=dry_run,
+        agent_backend=agent_backend,
+    )

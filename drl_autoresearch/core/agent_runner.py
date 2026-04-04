@@ -128,6 +128,7 @@ Before acting:
 4. If `.claude/commands/drl-run.md` exists, follow its project workflow guidance.
 5. Read the latest project state from `.drl_autoresearch/state.json` and recent registry/journal tails.
 6. Inspect `skills/` and consult any relevant project skills before acting. Do not assume any specific skill filenames.
+7. At the very start of the cycle, verify whether this run should use GPU or CPU and record that decision before the main work.
 
 Execution mode:
 - Current project mode: {project_mode}
@@ -139,6 +140,8 @@ Starting posture:
 - The platform provides backbone, rules, logs, compact context, and orchestration. You own the actual research/build direction.
 - In build mode, start from the spec and current codebase, identify what is missing, and decide the smallest high-signal research/build step yourself.
 - In build mode, create or update `implementation_plan/IMPLEMENTATION_PLAN.md` as a simple free-form plan the user can inspect. Do not use a canned template; just keep it concise and current.
+- Prefer GPU when it is available and materially beneficial. For very short or lightweight training/eval where CPU is genuinely the faster or better choice, CPU is allowed, but record the choice and rationale explicitly.
+- If GPU should be usable but is currently unresolved, fix that first before doing the main experiment loop work.
 - If useful skills are present, use them naturally. If a reusable skill is missing and would materially help future cycles, you may create it.
 - Avoid canned algorithm templates unless the project context clearly justifies them.
 
@@ -167,6 +170,9 @@ Required outcome for this cycle:
 - Update live progress during the cycle with:
   `python - <<'PY'\nfrom drl_autoresearch.core.agent_contract import update_runtime_activity\nupdate_runtime_activity('building', 'implementing missing training loop')\nPY`
   Use short activity labels like `reading_spec`, `building`, `training`, `evaluating`, `debugging`, `writing_plan`.
+- Update runtime device / GPU resolution state with:
+  `python - <<'PY'\nfrom drl_autoresearch.core.agent_contract import update_runtime_gpu_status\nupdate_runtime_gpu_status('gpu', 'solved', 'cuda available and selected for training')\nPY`
+  Use `device` in `{gpu,cpu,unknown}` and `resolution_status` in `{solving,solved}`.
 - Do not edit `.drl_autoresearch/state.json` manually; the controller will sync state after this run.
 
 Important:

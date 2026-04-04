@@ -109,21 +109,15 @@ class _DashboardHandler(http.server.BaseHTTPRequestHandler):
 
     def _serve_api_status(self) -> None:
         try:
-            state_path = (
-                self.server.collector.project_dir  # type: ignore[attr-defined]
-                / ".drl_autoresearch"
-                / "state.json"
-            )
-            state: dict = {}
-            if state_path.exists():
-                state = json.loads(state_path.read_text(encoding="utf-8"))
-
+            data = self.server.collector.collect().to_dict()  # type: ignore[attr-defined]
             payload = {
-                "current_phase": state.get("current_phase", "research"),
-                "best_metric_value": state.get("best_metric_value"),
-                "best_metric_name": state.get("best_metric_name", "reward"),
-                "total_runs": state.get("total_runs", 0),
-                "kept_runs": state.get("kept_runs", 0),
+                "current_phase": data.get("current_phase", "research"),
+                "best_metric_value": data.get("best_metric_value"),
+                "best_metric_name": data.get("best_metric_name", "reward"),
+                "total_runs": data.get("total_runs", 0),
+                "kept_runs": data.get("kept_runs", 0),
+                "discarded_runs": data.get("discarded_runs", 0),
+                "crashed_runs": data.get("crashed_runs", 0),
                 "ok": True,
             }
         except Exception:

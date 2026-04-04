@@ -150,3 +150,42 @@ def update_runtime_activity(activity: str, note: str = "") -> None:
             "note": note.strip(),
         },
     )
+
+
+def update_runtime_gpu_status(
+    device: str,
+    resolution_status: str,
+    note: str = "",
+) -> None:
+    """Update the current runtime compute device and GPU resolution state."""
+    project_dir = env_project_dir()
+    if project_dir is None:
+        return
+    state_path = project_dir / ".drl_autoresearch" / "state.json"
+    if not state_path.exists():
+        return
+    try:
+        payload = json.loads(state_path.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            return
+        flags = payload.get("flags")
+        if not isinstance(flags, dict):
+            flags = {}
+            payload["flags"] = flags
+        flags["runtime_compute_device"] = str(device).strip() or "unknown"
+        flags["gpu_resolution_status"] = str(resolution_status).strip() or "solving"
+        if note.strip():
+            flags["gpu_resolution_note"] = note.strip()
+        payload["last_updated"] = _now_iso()
+        _atomic_write_json(state_path, payload)
+    except Exception:
+        return
+    audit_event(
+        "runtime_gpu_status",
+        {
+            "run_id": env_run_id(),
+            "device": str(device).strip(),
+            "resolution_status": str(resolution_status).strip(),
+            "note": note.strip(),
+        },
+    )

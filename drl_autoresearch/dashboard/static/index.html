@@ -388,6 +388,14 @@
         <div class="workflow-v" id="wf-activity">—</div>
       </div>
       <div class="workflow-item">
+        <div class="workflow-k">Compute Device</div>
+        <div class="workflow-v" id="wf-device">—</div>
+      </div>
+      <div class="workflow-item">
+        <div class="workflow-k">GPU Resolve</div>
+        <div class="workflow-v" id="wf-gpu-status">—</div>
+      </div>
+      <div class="workflow-item">
         <div class="workflow-k">Last Refresh Reason</div>
         <div class="workflow-v" id="wf-last-reason">—</div>
       </div>
@@ -751,6 +759,14 @@ function updateWorkflow(workflow) {
   const activityNote = safeVal(wf.current_activity_note, '');
   document.getElementById('wf-activity').textContent =
     activityNote ? `${activity} (${activityNote})` : activity;
+
+  document.getElementById('wf-device').textContent =
+    safeVal(wf.runtime_compute_device, 'unknown');
+
+  const gpuStatus = safeVal(wf.gpu_resolution_status, 'solving');
+  const gpuNote = safeVal(wf.gpu_resolution_note, '');
+  document.getElementById('wf-gpu-status').textContent =
+    gpuNote ? `${gpuStatus} (${gpuNote})` : gpuStatus;
 
   document.getElementById('wf-last-reason').textContent =
     safeVal(wf.last_refresh_reason, 'none');
