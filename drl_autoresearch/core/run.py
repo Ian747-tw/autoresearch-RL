@@ -60,6 +60,7 @@ _REGISTRY_COLUMNS = [
 _WORKFLOW_METADATA = ".drl_autoresearch/skill_pack.json"
 _BUILD_PLAN_DIR = "implementation_plan"
 _PLAN_FILE = ".drl_autoresearch/plan.json"
+_REFRESH_COOLDOWN_RUNS = 3
 _AGENT_LOOP_SLEEP_SECONDS = 2
 _RUNTIME_CONTRACTS_DIR = ".drl_autoresearch/runtime/contracts"
 
@@ -725,14 +726,17 @@ def _load_policy_config(project_dir: Path) -> dict[str, Any]:
     return {}
 
 
-def _refresh_cooldown_runs(project_dir: Path) -> int:
+def _refresh_cooldown_enabled(project_dir: Path) -> bool:
     config = _load_policy_config(project_dir)
-    raw_value = config.get("refresh_cooldown_runs", 3)
-    try:
-        parsed = int(raw_value)
-    except (TypeError, ValueError):
-        return 3
-    return parsed if parsed > 0 else 3
+    raw_value = config.get("refresh_cooldown_enabled", True)
+    if isinstance(raw_value, bool):
+        return raw_value
+    lowered = str(raw_value).strip().lower()
+    if lowered in {"true", "yes", "on", "1"}:
+        return True
+    if lowered in {"false", "no", "off", "0"}:
+        return False
+    return True
 
 
 def _prepare_build_mode(
@@ -795,14 +799,19 @@ def _maybe_refresh_when_stuck(
     if not stuck:
         return
 
-    last_refresh_runs = int(state.flags.get("last_refresh_total_runs", -10_000))
-    cooldown_runs = _refresh_cooldown_runs(project_dir)
-    if (state.total_runs - last_refresh_runs) < cooldown_runs:
+    if not _refresh_cooldown_enabled(project_dir):
         console(
-            "Stuck signal detected but refresh cooldown is active; skipping refresh this run.",
-            "info",
+            "Stuck signal detected and refresh cooldown is disabled; refreshing immediately.",
+            "warning",
         )
-        return
+    else:
+        last_refresh_runs = int(state.flags.get("last_refresh_total_runs", -10_000))
+        if (state.total_runs - last_refresh_runs) < _REFRESH_COOLDOWN_RUNS:
+            console(
+                "Stuck signal detected but refresh cooldown is active; skipping refresh this run.",
+                "info",
+            )
+            return
 
     console(
         f"Stuck signal detected ({reason}); triggering research + redesign refresh.",

@@ -67,8 +67,8 @@ _POLICY_YAML = textwrap.dedent("""\
       keep_top_n: 5
       delete_on_discard: false
 
-    # Minimum completed runs between stuck-triggered refreshes.
-    refresh_cooldown_runs: 3
+    # Enable cooldown between stuck-triggered refreshes.
+    refresh_cooldown_enabled: true
 """)
 
 _HARDWARE_YAML = textwrap.dedent("""\
@@ -404,28 +404,28 @@ def _sync_permission_mode(config_dir: Path, onboarding_result: object) -> None:
 def _sync_policy_config(config_dir: Path, onboarding_result: object) -> None:
     """Ensure runtime policy config carries onboarding-selected execution values."""
     project = getattr(onboarding_result, "project", {}) or {}
-    selected_cooldown = _coerce_positive_int(
-        project.get("refresh_cooldown_runs"),
-        default=3,
+    selected_enabled = _coerce_yes_no_bool(
+        project.get("refresh_cooldown_enabled"),
+        default=True,
     )
 
     yaml_path = config_dir / "policy.yaml"
     if yaml_path.exists():
         text = yaml_path.read_text(encoding="utf-8")
-        key_line = f"refresh_cooldown_runs: {selected_cooldown}"
-        if re.search(r"(?m)^refresh_cooldown_runs:\s*", text):
+        key_line = f"refresh_cooldown_enabled: {'true' if selected_enabled else 'false'}"
+        if re.search(r"(?m)^refresh_cooldown_enabled:\s*", text):
             updated = re.sub(
-                r"(?m)^refresh_cooldown_runs:\s*.*$",
+                r"(?m)^refresh_cooldown_enabled:\s*.*$",
                 key_line,
                 text,
                 count=1,
             )
         else:
-            updated = text.rstrip("\n") + f"\n\n# Minimum completed runs between stuck-triggered refreshes.\n{key_line}\n"
+            updated = text.rstrip("\n") + f"\n\n# Enable cooldown between stuck-triggered refreshes.\n{key_line}\n"
         if updated != text:
             yaml_path.write_text(updated, encoding="utf-8")
             console(
-                f"Updated {yaml_path.name} refresh cooldown to {selected_cooldown} run(s)",
+                f"Updated {yaml_path.name} refresh cooldown to {'enabled' if selected_enabled else 'disabled'}",
                 "success",
             )
         return
@@ -435,27 +435,25 @@ def _sync_policy_config(config_dir: Path, onboarding_result: object) -> None:
         data = json.loads(json_path.read_text(encoding="utf-8"))
         if not isinstance(data, dict):
             data = {}
-        if data.get("refresh_cooldown_runs") != selected_cooldown:
-            data["refresh_cooldown_runs"] = selected_cooldown
+        if data.get("refresh_cooldown_enabled") != selected_enabled:
+            data["refresh_cooldown_enabled"] = selected_enabled
             json_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
             console(
-                f"Updated {json_path.name} refresh cooldown to {selected_cooldown} run(s)",
+                f"Updated {json_path.name} refresh cooldown to {'enabled' if selected_enabled else 'disabled'}",
                 "success",
             )
 
 
-def _coerce_positive_int(value: object, default: int) -> int:
+def _coerce_yes_no_bool(value: object, default: bool) -> bool:
     text = str(value or "").strip()
     if not text:
         return default
-    match = re.search(r"\d+", text)
-    if not match:
-        return default
-    try:
-        parsed = int(match.group(0))
-    except ValueError:
-        return default
-    return parsed if parsed > 0 else default
+    lowered = text.lower()
+    if lowered in {"yes", "true", "on", "1"}:
+        return True
+    if lowered in {"no", "false", "off", "0"}:
+        return False
+    return default
 
 
 def _refresh_project_managed_files(project_dir: Path) -> None:
@@ -721,7 +719,7 @@ def _build_skill_generator_context(project_dir: Path, onboarding_result: object)
         - Objective: {project.get("objective") or "unspecified"}
         - Success metric: {project.get("success_metric") or "unspecified"}
         - Other information: {project.get("other_information") or "none provided"}
-        - Stuck refresh cooldown: {project.get("refresh_cooldown_runs") or "3"} run(s)
+        - Stuck refresh cooldown: {project.get("refresh_cooldown_enabled") or "yes"}
         - Modification policy: {project.get("modifications_allowed") or "unspecified"}
         - Imitation learning policy: {project.get("imitation_learning_allowed") or "unspecified"}
         - Permission policy: {permissions.get("policy") or "open"}

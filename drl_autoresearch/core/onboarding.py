@@ -720,21 +720,13 @@ class OnboardingFlow:
             allow_decide=True,
             allow_multiline=True,
         )
-        refresh_cooldown_runs = _ask(
-            "Stuck refresh cooldown (runs between refreshes)",
-            default="3",
+        refresh_cooldown_enabled = _ask_choice(
+            "Enable stuck refresh cooldown?",
+            ["yes", "no"],
+            default="yes",
             allow_skip=True,
-            allow_decide=True,
-        )
-        if refresh_cooldown_runs in (None, "__decide__"):
-            refresh_cooldown_runs = "3"
-            self._log_assumption(
-                "project.refresh_cooldown_runs",
-                refresh_cooldown_runs,
-                "default",
-                "medium",
-                "Defaulting stuck refresh cooldown to 3 runs.",
-            )
+            allow_decide=False,
+        ) or "yes"
         other_information = _ask(
             "Other information (project quirks, known issues, extra context)",
             allow_skip=True,
@@ -763,7 +755,7 @@ class OnboardingFlow:
             "imitation_learning_allowed": imitation,
             "wall_clock_goal_hours": wall_clock,
             "compute_budget": compute_budget,
-            "refresh_cooldown_runs": refresh_cooldown_runs,
+            "refresh_cooldown_enabled": refresh_cooldown_enabled,
             "other_information": other_information,
         }
 
@@ -782,7 +774,7 @@ class OnboardingFlow:
             "imitation_learning_allowed": "no",
             "wall_clock_goal_hours": None,
             "compute_budget": None,
-            "refresh_cooldown_runs": "3",
+            "refresh_cooldown_enabled": "yes",
             "other_information": None,
         }
 
@@ -1099,7 +1091,7 @@ class OnboardingFlow:
                 "imitation_learning_allowed": "no",
                 "wall_clock_goal_hours": None,
                 "compute_budget": None,
-                "refresh_cooldown_runs": "3",
+                "refresh_cooldown_enabled": "yes",
                 "other_information": None,
             },
             hardware=detected_hw,

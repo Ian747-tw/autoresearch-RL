@@ -210,15 +210,15 @@ class MetricsCollector:
             total_runs_i = 0
 
         policy = self._load_policy_config()
-        try:
-            cooldown_window = int(policy.get("refresh_cooldown_runs", 3))
-        except (TypeError, ValueError):
-            cooldown_window = 3
-        if cooldown_window <= 0:
-            cooldown_window = 3
+        raw_enabled = policy.get("refresh_cooldown_enabled", True)
+        if isinstance(raw_enabled, bool):
+            cooldown_enabled = raw_enabled
+        else:
+            cooldown_enabled = str(raw_enabled).strip().lower() not in {"false", "no", "off", "0"}
+        cooldown_window = 3
         last_refresh_total_runs = flags.get("last_refresh_total_runs")
         cooldown_remaining = 0
-        if isinstance(last_refresh_total_runs, int):
+        if cooldown_enabled and isinstance(last_refresh_total_runs, int):
             delta = total_runs_i - last_refresh_total_runs
             cooldown_remaining = max(0, cooldown_window - delta)
 
@@ -234,6 +234,7 @@ class MetricsCollector:
             "build_bootstrap_research_applied": bool(
                 flags.get("build_bootstrap_research_applied", False)
             ),
+            "refresh_cooldown_enabled": cooldown_enabled,
             "refresh_cooldown_runs": cooldown_window,
             "refresh_cooldown_remaining_runs": cooldown_remaining,
             "last_refresh_reason": flags.get("last_refresh_reason"),

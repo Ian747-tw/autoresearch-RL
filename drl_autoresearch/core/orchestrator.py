@@ -156,7 +156,7 @@ class Orchestrator:
             "policy.yaml": (
                 "# DRL AutoResearch — policy\n"
                 "plateau_window: 5\n"
-                "refresh_cooldown_runs: 3\n"
+                "refresh_cooldown_enabled: true\n"
                 "max_runs: 100\n"
                 "phase_promotion_threshold: 3\n"
             ),

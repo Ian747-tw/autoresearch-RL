@@ -489,8 +489,8 @@ checkpoints:
   keep_top_n: 5
   delete_on_discard: false
 
-# Minimum completed runs between stuck-triggered refreshes.
-refresh_cooldown_runs: 3
+# Enable cooldown between stuck-triggered refreshes.
+refresh_cooldown_enabled: true
 """
 
 # ---------------------------------------------------------------------------
