@@ -144,15 +144,19 @@ def run(project_dir: Path) -> int:
 
 def _print_next_hint(state: ProjectState) -> None:
     """Print a contextual 'what to do next' suggestion."""
+    mode = state.flags.get("project_mode", "improve")
     if state.current_phase == "research":
-        console("Tip: run `drl-autoresearch run` to start the baseline loop.", "info")
+        if mode == "build":
+            console("Tip: run `drl-autoresearch run` to let the agent bootstrap research/build from the current spec.", "info")
+        else:
+            console("Tip: run `drl-autoresearch run` to start the autonomous keep/discard loop.", "info")
     elif state.current_phase == "baseline":
         console("Tip: run `drl-autoresearch plan` to review the current plan.", "info")
     elif state.current_phase in ("experimenting", "focused_tuning", "ablation"):
         console("Tip: run `drl-autoresearch run` to continue experimenting.", "info")
     elif state.current_phase == "converged":
         console(
-            "Research has converged. Review results in logs/experiment_registry.tsv.",
+            "Research is marked converged. Review results in logs/experiment_registry.tsv or set `requested_phase` to continue.",
             "success",
         )
     else:

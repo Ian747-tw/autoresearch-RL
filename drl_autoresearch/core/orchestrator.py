@@ -25,13 +25,6 @@ POLICY_FILE = "policy.yaml"
 HARDWARE_FILE = "hardware.yaml"
 PYTHON_ENV_FILE = "python_env.yaml"
 
-# Phase ordering for progression checks
-_PHASE_ORDER = {p: i for i, p in enumerate(VALID_PHASES)}
-
-# How many stagnant runs before considering a research refresh
-_DEFAULT_PLATEAU_WINDOW = 5
-
-
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -60,9 +53,9 @@ class Orchestrator:
     Responsibilities:
     - Load and persist project state
     - Enforce policy via PolicyEngine
-    - Decide the next experiment based on phase, history, and constraints
+    - Decide the next experiment based on phase and constraints
     - Record results and update state
-    - Detect conditions that trigger a research refresh
+    - Surface explicitly requested research refreshes
     - Manage worker assignments
     """
 
@@ -155,10 +148,7 @@ class Orchestrator:
             ),
             "policy.yaml": (
                 "# DRL AutoResearch — policy\n"
-                "plateau_window: 5\n"
                 "refresh_cooldown_enabled: true\n"
-                "max_runs: 100\n"
-                "phase_promotion_threshold: 3\n"
             ),
             "hardware.yaml": (
                 "# DRL AutoResearch — hardware constraints\n"
@@ -233,146 +223,38 @@ class Orchestrator:
     def _generate_experiment_for_phase(
         self, state: ProjectState
     ) -> Optional[Dict[str, Any]]:
-        """Generate an experiment dict appropriate for the current phase."""
+        """Generate a minimal experiment envelope and leave direction to the agent."""
         phase = state.current_phase
         run_id = _make_run_id()
         budget = self._default_resource_budget()
+        if phase not in VALID_PHASES:
+            return None
 
-        if phase == "research":
-            return {
-                "run_id": run_id,
-                "hypothesis": (
-                    "Conduct initial literature and codebase research to identify "
-                    "the most promising directions."
-                ),
-                "changes": ["Gather context; no code changes yet."],
-                "expected_effect": "Identify key hypotheses to test in baseline phase.",
-                "risk_level": "low",
-                "parent_run_id": None,
-                "skills_needed": ["literature_review", "codebase_analysis"],
-                "resource_budget": budget,
-            }
-
-        if phase == "baseline":
-            return {
-                "run_id": run_id,
-                "hypothesis": "Establish a clean baseline run with default hyperparameters.",
-                "changes": ["Run with default config, no modifications."],
-                "expected_effect": "Record baseline metric for all future comparisons.",
-                "risk_level": "low",
-                "parent_run_id": state.best_run_id,
-                "skills_needed": ["baseline_training"],
-                "resource_budget": budget,
-            }
-
-        if phase == "experimenting":
-            direction = self._pick_exploration_direction(state)
-            return {
-                "run_id": run_id,
-                "hypothesis": direction["hypothesis"],
-                "changes": direction["changes"],
-                "expected_effect": direction["expected_effect"],
-                "risk_level": direction["risk_level"],
-                "parent_run_id": state.best_run_id,
-                "skills_needed": direction["skills_needed"],
-                "resource_budget": budget,
-            }
-
-        if phase == "focused_tuning":
-            return {
-                "run_id": run_id,
-                "hypothesis": (
-                    f"Fine-tune the best configuration (run {state.best_run_id}) "
-                    "by adjusting learning rate and entropy coefficient."
-                ),
-                "changes": [
-                    "Reduce learning rate by 30%",
-                    "Sweep entropy coefficient in [0.001, 0.005, 0.01]",
-                ],
-                "expected_effect": (
-                    f"Improve best metric ({state.best_metric_name}="
-                    f"{state.best_metric_value}) by ~5%."
-                ),
-                "risk_level": "low",
-                "parent_run_id": state.best_run_id,
-                "skills_needed": ["hyperparameter_tuning"],
-                "resource_budget": budget,
-            }
-
-        if phase == "ablation":
-            return {
-                "run_id": run_id,
-                "hypothesis": (
-                    "Ablate each change from the best run independently to confirm "
-                    "individual contribution."
-                ),
-                "changes": ["Revert one component at a time from best run."],
-                "expected_effect": (
-                    "Quantify the marginal contribution of each design choice."
-                ),
-                "risk_level": "low",
-                "parent_run_id": state.best_run_id,
-                "skills_needed": ["ablation_study"],
-                "resource_budget": budget,
-            }
-
-        return None
-
-    def _pick_exploration_direction(
-        self, state: ProjectState
-    ) -> Dict[str, Any]:
-        """
-        Choose which axis to explore next during the experimenting phase.
-
-        Rotates through known DRL improvement directions based on run count
-        to avoid redundancy.
-        """
-        directions = [
-            {
-                "hypothesis": "Increase network capacity via wider hidden layers.",
-                "changes": ["Expand actor/critic hidden size from 256 to 512."],
-                "expected_effect": "Higher representational capacity may improve policy.",
-                "risk_level": "medium",
-                "skills_needed": ["architecture_search"],
+        best_metric = (
+            f"{state.best_metric_name}={state.best_metric_value}"
+            if state.best_metric_value is not None
+            else "no established best yet"
+        )
+        return {
+            "run_id": run_id,
+            "hypothesis": (
+                f"Agent-driven {phase} cycle. Infer the highest-signal next step from the "
+                "project spec, current code, logs, and prior results."
+            ),
+            "changes": [],
+            "expected_effect": (
+                f"Make measurable progress appropriate for phase `{phase}` while preserving "
+                f"the current best result ({best_metric})."
+            ),
+            "risk_level": "medium",
+            "parent_run_id": state.best_run_id,
+            "skills_needed": [],
+            "resource_budget": budget,
+            "params": {
+                "phase": phase,
+                "project_mode": state.flags.get("project_mode", "improve"),
             },
-            {
-                "hypothesis": "Try a larger replay buffer to reduce variance.",
-                "changes": ["Double replay buffer size."],
-                "expected_effect": "Reduce gradient noise; stabilise training.",
-                "risk_level": "low",
-                "skills_needed": ["hyperparameter_tuning"],
-            },
-            {
-                "hypothesis": "Apply reward normalisation to improve credit assignment.",
-                "changes": ["Add running mean/std normalisation to reward signal."],
-                "expected_effect": "More stable value estimates; faster convergence.",
-                "risk_level": "medium",
-                "skills_needed": ["reward_shaping"],
-            },
-            {
-                "hypothesis": "Enable gradient clipping to prevent instability.",
-                "changes": ["Set max_grad_norm=0.5 in optimiser step."],
-                "expected_effect": "Prevent loss spikes; improve training stability.",
-                "risk_level": "low",
-                "skills_needed": ["optimisation"],
-            },
-            {
-                "hypothesis": "Switch to a cosine learning rate schedule.",
-                "changes": ["Replace constant LR with cosine annealing."],
-                "expected_effect": "Better convergence in later training stages.",
-                "risk_level": "low",
-                "skills_needed": ["lr_scheduling"],
-            },
-            {
-                "hypothesis": "Increase number of parallel environments for diversity.",
-                "changes": ["Scale num_envs from 8 to 32 if hardware permits."],
-                "expected_effect": "Richer experience distribution; reduces overfitting.",
-                "risk_level": "medium",
-                "skills_needed": ["parallelism", "hardware_awareness"],
-            },
-        ]
-        idx = state.total_runs % len(directions)
-        return directions[idx]
+        }
 
     def _default_resource_budget(self) -> Dict[str, Any]:
         """Build a resource budget dict from hardware config."""
@@ -428,119 +310,35 @@ class Orchestrator:
         self._run_history.append(record)
         state.flags["run_history"] = self._run_history
 
-        # Auto-advance phase when conditions are met
         self._maybe_advance_phase(state)
 
         state.save()
 
     def _maybe_advance_phase(self, state: ProjectState) -> None:
-        """Promote phase automatically based on run history heuristics."""
-        phase = state.current_phase
-        threshold = self._policy_config.get("phase_promotion_threshold", 3)
-
-        successful = [
-            r for r in self._run_history if r.get("status") == "success"
-        ]
-
-        if phase == "baseline" and len(successful) >= 1:
-            state.set_phase("experimenting")
-
-        elif phase == "experimenting" and len(successful) >= threshold * 3:
-            state.set_phase("focused_tuning")
-
-        elif phase == "focused_tuning" and len(successful) >= threshold * 5:
-            state.set_phase("ablation")
-
-        elif phase == "ablation":
-            # Check if we've plateaued — if so, converge
-            trigger, _ = self.should_trigger_research_refresh()
-            if not trigger and len(successful) >= threshold * 7:
-                state.set_phase("converged")
+        """Respect an explicit phase request without inventing heuristics."""
+        requested_phase = state.flags.get("requested_phase")
+        if requested_phase not in VALID_PHASES:
+            return
+        if requested_phase == state.current_phase:
+            state.flags.pop("requested_phase", None)
+            return
+        state.set_phase(str(requested_phase))
+        state.flags.pop("requested_phase", None)
 
     # ------------------------------------------------------------------
     # Research refresh detection
     # ------------------------------------------------------------------
 
     def should_trigger_research_refresh(self) -> Tuple[bool, str]:
-        """
-        Determine whether the research loop should pause for a refresh.
-
-        Returns (True, reason_string) if a refresh is warranted.
-        """
+        """Return an explicitly requested research refresh, if any."""
         self._ensure_loaded()
         state = self._state  # type: ignore[assignment]
-        history = self._run_history
-
-        plateau_window = self._policy_config.get(
-            "plateau_window", _DEFAULT_PLATEAU_WINDOW
-        )
-
-        if len(history) < 2:
-            return False, ""
-
-        # 1. Plateau detection
-        recent = [
-            r for r in history[-plateau_window:]
-            if r.get("status") == "success" and r.get("metric_value") is not None
-        ]
-        if len(recent) >= plateau_window:
-            values = [r["metric_value"] for r in recent]
-            if state.best_metric_value is not None:
-                no_improvement = all(v <= state.best_metric_value for v in values)
-                spread = max(values) - min(values)
-                if no_improvement and spread < 1e-4:
-                    return True, "plateau"
-
-        # 2. Repeated failures
-        recent_all = history[-plateau_window:]
-        failure_count = sum(
-            1 for r in recent_all if r.get("status") in ("crashed", "discarded")
-        )
-        if failure_count >= 3:
-            return True, "repeated_failures"
-
-        # 3. Train/eval divergence (requires 'train_metric' and 'eval_metric' in result)
-        divergence_runs = [
-            r for r in history[-plateau_window:]
-            if "train_metric" in r and "eval_metric" in r
-        ]
-        if len(divergence_runs) >= 3:
-            train_trend = [r["train_metric"] for r in divergence_runs]
-            eval_trend = [r["eval_metric"] for r in divergence_runs]
-            train_improving = train_trend[-1] > train_trend[0]
-            eval_not_improving = eval_trend[-1] <= eval_trend[0]
-            if train_improving and eval_not_improving:
-                return True, "train_eval_divergence"
-
-        # 4. Instability (high variance in recent loss)
-        loss_values = [
-            r["loss"] for r in history[-plateau_window:]
-            if "loss" in r and isinstance(r["loss"], (int, float))
-        ]
-        if len(loss_values) >= 3:
-            mean_loss = sum(loss_values) / len(loss_values)
-            variance = sum((v - mean_loss) ** 2 for v in loss_values) / len(loss_values)
-            if mean_loss > 0 and (variance / (mean_loss ** 2)) > 0.5:
-                return True, "instability"
-
-        # 5. Reward hacking (reward up, real_objective flat/down)
-        hacking_runs = [
-            r for r in history[-plateau_window:]
-            if "metric_value" in r and "real_objective" in r
-        ]
-        if len(hacking_runs) >= 3:
-            reward_trend = [r["metric_value"] for r in hacking_runs]
-            obj_trend = [r["real_objective"] for r in hacking_runs]
-            reward_rising = reward_trend[-1] > reward_trend[0]
-            obj_flat_or_down = obj_trend[-1] <= obj_trend[0]
-            if reward_rising and obj_flat_or_down:
-                return True, "reward_hacking"
-
-        # 6. Compute exceeded
-        max_runs = self._policy_config.get("max_runs", 100)
-        if state.total_runs >= max_runs:
-            return True, "compute_exceeded"
-
+        requested = state.flags.get("research_refresh_requested")
+        if isinstance(requested, str) and requested.strip():
+            return True, requested.strip()
+        if requested:
+            reason = str(state.flags.get("research_refresh_reason") or "requested")
+            return True, reason
         return False, ""
 
     # ------------------------------------------------------------------

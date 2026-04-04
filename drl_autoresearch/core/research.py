@@ -69,7 +69,7 @@ def _read_registry(project_dir: Path) -> List[Dict[str, str]]:
 
 
 def _run_research_skills(project_dir: Path) -> List[Dict[str, Any]]:
-    """Run any research_*.py scripts in skills/ and collect new hypotheses."""
+    """Run research skill scripts or fall back to bundled markdown playbooks."""
     skills_dir = project_dir / "skills"
     new_hypotheses: List[Dict[str, Any]] = []
 
@@ -77,6 +77,28 @@ def _run_research_skills(project_dir: Path) -> List[Dict[str, Any]]:
         return new_hypotheses
 
     skill_scripts = sorted(skills_dir.glob("research_*.py"))
+    skill_playbooks = [
+        path for path in sorted(skills_dir.glob("*.md"))
+        if "research" in path.stem.lower()
+    ]
+    if not skill_scripts and skill_playbooks:
+        for playbook in skill_playbooks:
+            console(f"  Using research playbook: {playbook.name}", "info")
+            title = f"Research playbook review — {playbook.stem}"
+            new_hypotheses.append(
+                {
+                    "id": str(uuid.uuid4()),
+                    "title": title,
+                    "rationale": (
+                        f"Consult `{playbook.name}` and derive the next project-specific "
+                        "research direction from current results, code, and constraints."
+                    ),
+                    "params": {"skill_playbook": playbook.name, "mode": "agent_driven_refresh"},
+                    "priority": 3,
+                    "status": "pending",
+                }
+            )
+        return new_hypotheses
     if not skill_scripts:
         return new_hypotheses
 
@@ -119,71 +141,46 @@ def _heuristic_refresh(
     plan: Dict[str, Any], registry_rows: List[Dict[str, str]]
 ) -> List[Dict[str, Any]]:
     """
-    Identify hyperparameter regions not yet explored and return new hypotheses.
-
-    Strategy:
-    - Extract learning rates already tried.
-    - Suggest a log-midpoint between the best and worst performing runs if
-      there are enough data points.
-    - Fall back to suggesting a standard PPO vs SAC vs TD3 comparison if the
-      registry is sparse.
+    Return minimal agent-facing refresh hypotheses without algorithm templates.
     """
     new_hypotheses: List[Dict[str, Any]] = []
+    existing_titles = {h.get("title", "") for h in plan.get("hypotheses", [])}
 
     completed_rows = [
         r for r in registry_rows if r.get("status") == "completed" and r.get("metric_value")
     ]
 
     if len(completed_rows) < 2:
-        # Sparse data — suggest common algorithm comparison.
-        algorithms = ["PPO", "SAC", "TD3"]
-        existing_titles = {h.get("title", "") for h in plan.get("hypotheses", [])}
-        for algo in algorithms:
-            title = f"Algorithm comparison — {algo}"
-            if title not in existing_titles:
-                new_hypotheses.append({
-                    "id": str(uuid.uuid4()),
-                    "title": title,
-                    "rationale": f"Compare {algo} against current baseline.",
-                    "params": {"algorithm": algo},
-                    "priority": 3,
-                    "status": "pending",
-                })
+        title = "Agent-driven sparse-data research refresh"
+        if title not in existing_titles:
+            new_hypotheses.append({
+                "id": str(uuid.uuid4()),
+                "title": title,
+                "rationale": (
+                    "Completed-run history is sparse. Inspect the project spec, current code, "
+                    "and failure modes to propose the next build or training direction instead "
+                    "of relying on canned algorithm comparisons."
+                ),
+                "params": {"mode": "agent_driven_refresh", "sparse_data": True},
+                "priority": 3,
+                "status": "pending",
+            })
         return new_hypotheses
 
-    # Extract tried learning rates from plan params.
-    tried_lrs = set()
-    for h in plan.get("hypotheses", []):
-        lr = h.get("params", {}).get("learning_rate")
-        if lr is not None:
-            tried_lrs.add(float(lr))
-
-    # Find the best-performing run's learning rate (if parseable).
-    try:
-        best_row = max(completed_rows, key=lambda r: float(r.get("metric_value", 0)))
-        best_params = json.loads(best_row.get("params_json", "{}"))
-        best_lr = best_params.get("learning_rate")
-        worst_row = min(completed_rows, key=lambda r: float(r.get("metric_value", 0)))
-        worst_params = json.loads(worst_row.get("params_json", "{}"))
-        worst_lr = worst_params.get("learning_rate")
-
-        if best_lr and worst_lr and best_lr != worst_lr:
-            import math
-            mid_lr = math.exp((math.log(best_lr) + math.log(worst_lr)) / 2)
-            rounded_lr = float(f"{mid_lr:.2e}")
-            if rounded_lr not in tried_lrs:
-                new_hypotheses.append({
-                    "id": str(uuid.uuid4()),
-                    "title": f"Learning rate mid-point (lr={rounded_lr:.2e})",
-                    "rationale": (
-                        f"Log-midpoint between best (lr={best_lr}) and worst (lr={worst_lr}) runs."
-                    ),
-                    "params": {"learning_rate": rounded_lr},
-                    "priority": 4,
-                    "status": "pending",
-                })
-    except (ValueError, KeyError, json.JSONDecodeError):
-        pass
+    title = "Agent-driven targeted research refresh"
+    if title not in existing_titles:
+        new_hypotheses.append({
+            "id": str(uuid.uuid4()),
+            "title": title,
+            "rationale": (
+                "Review the strongest and weakest recent runs, then derive the next "
+                "highest-signal change from project-specific evidence rather than fixed "
+                "hyperparameter or algorithm templates."
+            ),
+            "params": {"mode": "agent_driven_refresh", "sparse_data": False},
+            "priority": 4,
+            "status": "pending",
+        })
 
     return new_hypotheses
 

@@ -127,13 +127,19 @@ Before acting:
 3. Read `AGENT.md` if present.
 4. If `.claude/commands/drl-run.md` exists, follow its project workflow guidance.
 5. Read the latest project state from `.drl_autoresearch/state.json` and recent registry/journal tails.
-6. Inspect `skills/` and consult any relevant project skills before acting.
+6. Inspect `skills/` and consult any relevant project skills before acting. Do not assume any specific skill filenames.
 
 Execution mode:
 - Current project mode: {project_mode}
 - Current phase: {state.get("current_phase", "research")}
 - Best metric: {state.get("best_metric_name", "reward")}={state.get("best_metric_value")}
 - {mode_line}
+
+Starting posture:
+- The platform provides backbone, rules, logs, compact context, and orchestration. You own the actual research/build direction.
+- In build mode, start from the spec and current codebase, identify what is missing, and decide the smallest high-signal research/build step yourself.
+- If useful skills are present, use them naturally. If a reusable skill is missing and would materially help future cycles, you may create it.
+- Avoid canned algorithm templates unless the project context clearly justifies them.
 
 Assigned experiment candidate:
 - run_id: {run_id}
@@ -155,8 +161,8 @@ Required outcome for this cycle:
 - Update the experiment registry through `ExperimentRegistry`, never by raw TSV append.
 - If training/eval metrics exist, write `logs/artifacts/<run_id>/metrics.json` when appropriate for dashboard curves.
 - Update journal/incidents/handoffs through their helper APIs only when the cycle warrants it.
-- After consulting skills, record that consultation with:
-  `python - <<'PY'\nfrom drl_autoresearch.core.agent_contract import record_skill_consultation\nrecord_skill_consultation('skills/<file>', 'why it was relevant')\nPY`
+- After consulting or creating a skill, record that consultation with:
+  `python - <<'PY'\nfrom drl_autoresearch.core.agent_contract import record_skill_consultation\nrecord_skill_consultation('skills/<relevant-file>.md', 'why it was relevant')\nPY`
 - Do not edit `.drl_autoresearch/state.json` manually; the controller will sync state after this run.
 
 Important:

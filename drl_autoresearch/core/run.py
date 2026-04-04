@@ -9,13 +9,12 @@ Responsibilities
 2. Pop experiments from the queue (or generate a baseline if queue is empty).
 3. Dispatch experiments (sequentially or in parallel via multiprocessing).
 4. Record results to experiment_registry.tsv and update state.json.
-5. Advance the research phase when phase-transition criteria are met.
+5. Preserve keep/discard state and best-run tracking across cycles.
 """
 
 from __future__ import annotations
 
 import concurrent.futures
-import csv
 import json
 import os
 import shutil
@@ -24,7 +23,6 @@ import sys
 import time
 import traceback
 import uuid
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -485,25 +483,16 @@ def _execute_experiment(experiment: Dict[str, Any], project_dir: Path) -> Dict[s
 # ---------------------------------------------------------------------------
 
 def _maybe_advance_phase(state: ProjectState) -> bool:
-    """Check phase-transition criteria and advance if met.  Returns True if advanced."""
-    current_idx = VALID_PHASES.index(state.current_phase) if state.current_phase in VALID_PHASES else 0
-
-    if state.current_phase == "research" and state.total_runs >= 1:
-        state.set_phase("baseline")
-        return True
-    if state.current_phase == "baseline" and state.kept_runs >= 3:
-        state.set_phase("experimenting")
-        return True
-    if state.current_phase == "experimenting" and state.kept_runs >= 10:
-        state.set_phase("focused_tuning")
-        return True
-    if state.current_phase == "focused_tuning" and state.kept_runs >= 20:
-        state.set_phase("ablation")
-        return True
-    if state.current_phase == "ablation" and state.kept_runs >= 30:
-        state.set_phase("converged")
-        return True
-    return False
+    """Apply an explicit phase request without auto-promotion heuristics."""
+    requested_phase = state.flags.get("requested_phase")
+    if requested_phase not in VALID_PHASES:
+        return False
+    if requested_phase == state.current_phase:
+        state.flags.pop("requested_phase", None)
+        return False
+    state.set_phase(str(requested_phase))
+    state.flags.pop("requested_phase", None)
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -511,17 +500,15 @@ def _maybe_advance_phase(state: ProjectState) -> bool:
 # ---------------------------------------------------------------------------
 
 def _generate_baseline_experiments() -> List[Dict[str, Any]]:
-    """Return a minimal set of baseline experiments when the queue is empty."""
+    """Return a minimal agent-driven fallback when the queue is empty."""
     return [
         {
             "run_id": str(uuid.uuid4()),
-            "hypothesis": "baseline_default_hyperparams",
-            "params": {
-                "learning_rate": 3e-4,
-                "batch_size": 64,
-                "gamma": 0.99,
-                "n_steps": 2048,
-            },
+            "hypothesis": (
+                "Agent-driven fallback cycle. Infer the next meaningful baseline or build step "
+                "from the project spec, codebase, and current logs."
+            ),
+            "params": {"mode": "agent_driven_fallback"},
             "metric_name": "reward",
             "skill": None,
         }
@@ -604,37 +591,19 @@ def _write_compact_build_plan_folder(project_dir: Path, state: ProjectState) -> 
     other_information = project.get("other_information") or "none provided"
 
     files = {
-        "01_research.md": (
-            "# Step 1 — Research Framing\n\n"
+        "BOOTSTRAP_CONTEXT.md": (
+            "# Build Bootstrap Context\n\n"
             f"- Environment/domain: {env}\n"
             f"- Objective: {objective}\n"
             f"- Success metric: {success_metric}\n"
-            f"- Other information: {other_information}\n"
-            "- Run deep research to identify 3-5 promising design directions.\n"
-            "- Keep only high-signal findings linked to expected training impact.\n"
-            "- Reject ideas that violate hard rules or budget constraints.\n"
-        ),
-        "02_system_design.md": (
-            "# Step 2 — System Design\n\n"
-            "- Choose a compact baseline architecture and algorithm family.\n"
-            "- Define reward shaping policy with anti-hacking checks.\n"
-            "- Define feature/observation design with minimal complexity.\n"
-            "- Keep changes incremental and testable.\n"
-        ),
-        "03_training_plan.md": (
-            "# Step 3 — Build and Training Plan\n\n"
-            "- Build minimal runnable training pipeline first.\n"
-            "- Validate one clean baseline run before wider sweeps.\n"
-            "- Use short probe runs for risky hypotheses.\n"
-            "- Promote only improvements measured by eval metric.\n"
-        ),
-        "04_rules_and_risks.md": (
-            "# Step 4 — Rules and Risk Controls\n\n"
+            f"- Other information: {other_information}\n\n"
             "Hard rules to enforce:\n"
             f"{rules_block}\n\n"
-            "- Any redesign must pass policy checks before execution.\n"
-            "- If stuck for long, trigger research refresh and adjust plan.\n"
-            "- Keep documentation compact to avoid token waste.\n"
+            "Instructions:\n"
+            "- Treat this folder as lightweight context only.\n"
+            "- Decide the actual build, research, and training plan from the project spec, codebase, and logs.\n"
+            "- Do not treat this file as a fixed template or canned algorithm recommendation.\n"
+            "- Keep outputs compact and update the normal project backbone as you go.\n"
         ),
     }
 
@@ -662,45 +631,6 @@ def _trigger_research_and_plan_refresh(project_dir: Path, reason: str, dry_run: 
         plan_mod.run(project_dir=project_dir, refresh=True)
     rc = research_mod.run(project_dir=project_dir)
     return rc == 0
-
-
-def _recent_stuck_signal(project_dir: Path, window: int = 6) -> tuple[bool, str]:
-    path = _registry_path(project_dir)
-    if not path.exists():
-        return False, ""
-
-    rows: List[Dict[str, str]] = []
-    try:
-        with path.open("r", newline="", encoding="utf-8") as fh:
-            reader = csv.DictReader(fh, delimiter="\t")
-            rows = [dict(r) for r in reader]
-    except OSError:
-        return False, ""
-
-    if not rows:
-        return False, ""
-
-    recent = rows[-window:]
-    failure_count = sum(1 for r in recent if r.get("status") in {"crashed", "discarded", "pending_skill"})
-    if failure_count >= max(3, window // 2):
-        return True, "repeated_failures"
-
-    completed = [r for r in rows if r.get("status") == "completed" and r.get("metric_value")]
-    if len(completed) < window + 1:
-        return False, ""
-
-    prev = completed[:-window]
-    curr = completed[-window:]
-    try:
-        prev_best = max(float(r["metric_value"]) for r in prev)
-        curr_best = max(float(r["metric_value"]) for r in curr)
-    except (ValueError, KeyError):
-        return False, ""
-
-    if curr_best <= prev_best:
-        return True, "no_progress"
-
-    return False, ""
 
 
 def _load_policy_config(project_dir: Path) -> dict[str, Any]:
@@ -795,26 +725,32 @@ def _maybe_refresh_when_stuck(
         except Exception:  # noqa: BLE001
             stuck, reason = (False, "")
     if not stuck:
-        stuck, reason = _recent_stuck_signal(project_dir)
+        requested = state.flags.get("research_refresh_requested")
+        if isinstance(requested, str) and requested.strip():
+            stuck, reason = True, requested.strip()
+        elif requested:
+            stuck, reason = True, str(
+                state.flags.get("research_refresh_reason") or "requested"
+            )
     if not stuck:
         return
 
     if not _refresh_cooldown_enabled(project_dir):
         console(
-            "Stuck signal detected and refresh cooldown is disabled; refreshing immediately.",
+            "Research refresh requested and cooldown is disabled; refreshing immediately.",
             "warning",
         )
     else:
         last_refresh_runs = int(state.flags.get("last_refresh_total_runs", -10_000))
         if (state.total_runs - last_refresh_runs) < _REFRESH_COOLDOWN_RUNS:
             console(
-                "Stuck signal detected but refresh cooldown is active; skipping refresh this run.",
+                "Research refresh requested but cooldown is active; skipping refresh this run.",
                 "info",
             )
             return
 
     console(
-        f"Stuck signal detected ({reason}); triggering research + redesign refresh.",
+        f"Research refresh requested ({reason}); triggering research + redesign refresh.",
         "warning",
     )
     refreshed = _trigger_research_and_plan_refresh(
@@ -827,11 +763,13 @@ def _maybe_refresh_when_stuck(
 
     state.flags["last_refresh_reason"] = reason
     state.flags["last_refresh_total_runs"] = state.total_runs
+    state.flags["research_refresh_requested"] = False
+    state.flags.pop("research_refresh_reason", None)
     journal = ProjectJournal(project_dir)
     journal.initialize(project_name=state.project_name, spec={})
     journal.log_event(
         "stuck_refresh",
-        "No meaningful progress detected. Triggered compact research/plan refresh.",
+        "Triggered compact research/plan refresh from an explicit refresh request.",
         metadata={"reason": reason, "refresh_applied": refreshed},
     )
 

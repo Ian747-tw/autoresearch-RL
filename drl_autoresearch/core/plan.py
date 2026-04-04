@@ -47,57 +47,54 @@ _PLAN_FILENAME = "plan.json"
 # ---------------------------------------------------------------------------
 
 def _default_hypotheses(state: ProjectState) -> List[Dict[str, Any]]:
-    """Return a sensible set of starter hypotheses based on the current phase."""
+    """Return a compact agent-driven starter set without canned templates."""
     base = [
         {
             "id": str(uuid.uuid4()),
-            "title": "Baseline — default hyperparameters",
-            "rationale": "Establish a reproducible performance floor.",
-            "params": {"learning_rate": 3e-4, "batch_size": 64, "gamma": 0.99},
+            "title": "Agent-driven next step",
+            "rationale": (
+                "Inspect the current spec, codebase, logs, and registry, then choose the "
+                "single highest-signal next action."
+            ),
+            "params": {"phase": state.current_phase, "mode": "agent_driven_plan"},
             "priority": 5,
             "status": "pending",
         },
         {
             "id": str(uuid.uuid4()),
-            "title": "Higher learning rate",
-            "rationale": "Faster convergence may outweigh instability risk.",
-            "params": {"learning_rate": 1e-3, "batch_size": 64, "gamma": 0.99},
+            "title": "Evidence-led follow-up",
+            "rationale": (
+                "Use the strongest completed run and the most recent failures to decide the "
+                "next targeted experiment or build task."
+            ),
+            "params": {"phase": state.current_phase, "uses_history": True},
             "priority": 4,
-            "status": "pending",
-        },
-        {
-            "id": str(uuid.uuid4()),
-            "title": "Lower learning rate",
-            "rationale": "More stable training at the cost of speed.",
-            "params": {"learning_rate": 1e-4, "batch_size": 64, "gamma": 0.99},
-            "priority": 3,
-            "status": "pending",
-        },
-        {
-            "id": str(uuid.uuid4()),
-            "title": "Larger batch size",
-            "rationale": "Better gradient estimates; may plateau earlier.",
-            "params": {"learning_rate": 3e-4, "batch_size": 256, "gamma": 0.99},
-            "priority": 3,
-            "status": "pending",
-        },
-        {
-            "id": str(uuid.uuid4()),
-            "title": "Higher discount factor",
-            "rationale": "Encourages long-horizon planning.",
-            "params": {"learning_rate": 3e-4, "batch_size": 64, "gamma": 0.999},
-            "priority": 2,
             "status": "pending",
         },
     ]
 
-    if state.current_phase in ("focused_tuning", "ablation"):
+    if state.current_phase == "research":
         base.append({
             "id": str(uuid.uuid4()),
-            "title": "Entropy regularisation sweep",
-            "rationale": "Prevent premature convergence to local optima.",
-            "params": {"entropy_coef": 0.01},
-            "priority": 4,
+            "title": "Research/build bootstrap",
+            "rationale": (
+                "If the project is not yet runnable, prioritize the smallest research or "
+                "implementation step that makes the training loop real."
+            ),
+            "params": {"project_readiness": "bootstrap"},
+            "priority": 3,
+            "status": "pending",
+        })
+    else:
+        base.append({
+            "id": str(uuid.uuid4()),
+            "title": "Keep/discard pressure test",
+            "rationale": (
+                "Propose one measurable change that can beat the current best result or get "
+                "discarded cleanly with useful evidence."
+            ),
+            "params": {"project_readiness": "iterative_loop"},
+            "priority": 3,
             "status": "pending",
         })
 
@@ -114,6 +111,7 @@ def _build_plan(state: ProjectState) -> Dict[str, Any]:
         "hypotheses": _default_hypotheses(state),
         "notes": (
             "Auto-generated plan. Edit hypotheses freely. "
+            "Treat it as lightweight context, not a fixed experiment template. "
             "Run `drl-autoresearch plan --refresh` to regenerate."
         ),
     }
