@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import csv
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -106,17 +107,41 @@ def _print_session_checkpoint(project_dir: Path) -> None:
     intent = "continue orchestrator loop with compact context"
     current_activity = flags.get("current_activity")
     current_activity_note = flags.get("current_activity_note")
+    stop_brief_pending = bool(flags.get("stop_brief_pending", False))
 
     print()
     print("=== Session Sync Checkpoint (compact) ===")
     print(f"phase/mode: {phase} / {mode}")
     print(f"best run + metric: {best_run} ({best_metric_name}={best_metric_val})")
     print(f"latest 3 outcomes: {outcomes_str}")
-    if current_activity:
+    if current_activity and stop_brief_pending:
         suffix = f" ({current_activity_note})" if current_activity_note else ""
         print(f"interrupted activity: {current_activity}{suffix}")
     print(f"open incidents/handoff constraints: {incident_signal}; last_refresh_reason={refresh_reason}")
     print(f"next experiment intent: {intent}")
+
+
+def _consume_stop_brief(project_dir: Path) -> None:
+    state = _load_state(project_dir)
+    flags = state.get("flags", {})
+    if not isinstance(flags, dict) or not flags.get("stop_brief_pending"):
+        return
+    flags.pop("stop_brief_pending", None)
+    flags.pop("stop_requested_at", None)
+    flags.pop("stop_signal_sent", None)
+    flags.pop("current_activity", None)
+    flags.pop("current_activity_note", None)
+    flags.pop("active_run_id", None)
+    flags.pop("loop_pid", None)
+    flags["loop_running"] = False
+    state["last_updated"] = datetime.now(timezone.utc).isoformat()
+    path = project_dir / ".drl_autoresearch" / "state.json"
+    try:
+        tmp = path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(state, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        tmp.replace(path)
+    except OSError:
+        return
 
 
 def run(
@@ -158,6 +183,13 @@ def run(
     _print_tail(project_dir, "logs/incidents.md", 80)
 
     _print_session_checkpoint(project_dir)
+    _consume_stop_brief(project_dir)
+    try:
+        from drl_autoresearch.dashboard.metrics import MetricsCollector
+
+        MetricsCollector(project_dir).reconcile_dashboard_backends()
+    except Exception:
+        pass
 
     if no_run:
         console("Resume sync completed. Not starting run loop (--no-run).", "success")

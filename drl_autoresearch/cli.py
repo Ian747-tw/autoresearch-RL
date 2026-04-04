@@ -85,6 +85,10 @@ def _core_check():
     from drl_autoresearch.core import check as _check
     return _check
 
+def _core_stop():
+    from drl_autoresearch.core import stop as _stop
+    return _stop
+
 def _dashboard_mod():
     from drl_autoresearch import dashboard as _dash
     return _dash
@@ -194,6 +198,12 @@ def _cmd_check(args: argparse.Namespace) -> int:
         action=args.action,
         details=details,
     )
+
+
+def _cmd_stop(args: argparse.Namespace) -> int:
+    project_dir = Path(args.project_dir).resolve()
+    mod = _core_stop()
+    return mod.run(project_dir=project_dir, brief=getattr(args, "brief", "") or "")
 
 
 # ---------------------------------------------------------------------------
@@ -504,6 +514,29 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Which coding-agent CLI to use when continuing after resume (default: auto).",
     )
     p_resume.set_defaults(func=_cmd_resume)
+
+    # -- stop ----------------------------------------------------------------
+    p_stop = sub.add_parser(
+        "stop",
+        help="Request the autonomous gateway to stop and save a compact resume brief.",
+        description=(
+            "Signal the active autonomous run loop to stop after the current cycle, "
+            "and record a compact summary of what it was doing and what should happen next."
+        ),
+    )
+    p_stop.add_argument(
+        "--project-dir",
+        default=".",
+        metavar="DIR",
+        help="Root of the target project (default: current directory).",
+    )
+    p_stop.add_argument(
+        "--brief",
+        default="",
+        metavar="TEXT",
+        help="Optional compact override for the 'what next' part of the saved stop brief.",
+    )
+    p_stop.set_defaults(func=_cmd_stop)
 
     # -- check ---------------------------------------------------------------
     p_check = sub.add_parser(

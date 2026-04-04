@@ -203,6 +203,7 @@ def _set_loop_flags(
     state.flags["agent_backend"] = backend
     state.flags["active_run_id"] = active_run_id
     state.flags["last_agent_exit_code"] = last_exit_code
+    state.flags["loop_pid"] = os.getpid() if running else None
     if activity == "agent_cycle_running":
         state.flags["runtime_compute_device"] = "unknown"
         state.flags["gpu_resolution_status"] = "solving"
