@@ -172,7 +172,7 @@ Required outcome for this cycle:
   Use short activity labels like `reading_spec`, `building`, `training`, `evaluating`, `debugging`, `writing_plan`.
 - Update runtime device / GPU resolution state with:
   `python - <<'PY'\nfrom drl_autoresearch.core.agent_contract import update_runtime_gpu_status\nupdate_runtime_gpu_status('gpu', 'solved', 'cuda available and selected for training')\nPY`
-  Use `device` in `{gpu,cpu,unknown}` and `resolution_status` in `{solving,solved}`.
+  Use `device` in `{{gpu,cpu,unknown}}` and `resolution_status` in `{{solving,solved}}`.
 - Do not edit `.drl_autoresearch/state.json` manually; the controller will sync state after this run.
 
 Important:
