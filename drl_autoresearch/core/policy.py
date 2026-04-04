@@ -49,6 +49,9 @@ ACTION_TYPES = {
     "edit_reward",
     "edit_eval",
     "edit_env",
+    "modify_policy_yaml",
+    "delete_checkpoints",
+    "run_shell_commands",
     "install_package",
     "update_package",
     "global_install",
@@ -123,6 +126,7 @@ class PolicyEngine:
         self._permissions_config: Dict[str, Any] = {}
         # Per-action-type overrides loaded from permissions.yaml
         self._action_overrides: Dict[str, str] = {}
+        self._approval_required: set[str] = set()
 
         self._audit_log_path = self.project_dir / CONFIG_DIR / AUDIT_LOG_FILE
 
@@ -172,7 +176,17 @@ class PolicyEngine:
         self._mode = raw_mode if raw_mode in PERMISSION_MODES else "open"
 
         # Per-action overrides: {action_type: "allow" | "deny" | "prompt"}
-        self._action_overrides = self._permissions_config.get("action_overrides", {})
+        raw_overrides = self._permissions_config.get("action_overrides", {})
+        self._action_overrides = (
+            raw_overrides if isinstance(raw_overrides, dict) else {}
+        )
+        required = self._permissions_config.get("require_human_approval", [])
+        if isinstance(required, list):
+            self._approval_required = {
+                str(item).strip() for item in required if str(item).strip()
+            }
+        else:
+            self._approval_required = set()
 
     # ------------------------------------------------------------------
     # Rule checking
@@ -220,8 +234,33 @@ class PolicyEngine:
             self._audit(action_type, details, decision, "always_blocked")
             return decision
 
-        # 3. Per-action overrides from permissions.yaml
-        override = self._action_overrides.get(action_type)
+        effective_actions = self._effective_actions(action_type, details)
+
+        # 3. Explicit approval requirements from permissions.yaml
+        required_hits = sorted(self._approval_required.intersection(effective_actions))
+        if required_hits:
+            decision = PolicyDecision(
+                allowed=True,
+                requires_confirmation=True,
+                reason=(
+                    "Action requires explicit human confirmation via permissions config: "
+                    + ", ".join(required_hits)
+                ),
+                violated_rules=[],
+                mode=self._mode,
+            )
+            self._audit(action_type, details, decision, "require_human_approval")
+            return decision
+
+        # 4. Per-action overrides from permissions.yaml
+        override = next(
+            (
+                self._action_overrides[key]
+                for key in effective_actions
+                if key in self._action_overrides
+            ),
+            None,
+        )
         if override == "deny":
             decision = PolicyDecision(
                 allowed=False,
@@ -243,10 +282,36 @@ class PolicyEngine:
             self._audit(action_type, details, decision, "config_override_allow")
             return decision
 
-        # 4. Permission-mode logic
+        # 5. Permission-mode logic
         decision = self._apply_mode(action_type, details)
         self._audit(action_type, details, decision, "mode_check")
         return decision
+
+    def _effective_actions(
+        self, action_type: str, details: Dict[str, Any]
+    ) -> set[str]:
+        """Return action keys implied by the declared action and its targets."""
+        actions = {action_type}
+        text_parts: List[str] = []
+        for value in details.values():
+            if isinstance(value, str):
+                text_parts.append(value.lower())
+            elif isinstance(value, (list, tuple, set)):
+                text_parts.extend(
+                    str(item).lower() for item in value if isinstance(item, str)
+                )
+        blob = " ".join(text_parts)
+
+        if "policy.yaml" in blob or "policy.json" in blob:
+            actions.add("modify_policy_yaml")
+        if "checkpoint" in blob and any(
+            token in blob for token in ("delete", "remove", "prune")
+        ):
+            actions.add("delete_checkpoints")
+        if any(token in blob for token in ("shell", "bash", "sh ", "command")):
+            actions.add("run_shell_commands")
+
+        return actions
 
     def _rule_matches_action(
         self,

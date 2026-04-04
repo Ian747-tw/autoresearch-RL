@@ -138,6 +138,7 @@ Execution mode:
 Starting posture:
 - The platform provides backbone, rules, logs, compact context, and orchestration. You own the actual research/build direction.
 - In build mode, start from the spec and current codebase, identify what is missing, and decide the smallest high-signal research/build step yourself.
+- In build mode, create or update `implementation_plan/IMPLEMENTATION_PLAN.md` as a simple free-form plan the user can inspect. Do not use a canned template; just keep it concise and current.
 - If useful skills are present, use them naturally. If a reusable skill is missing and would materially help future cycles, you may create it.
 - Avoid canned algorithm templates unless the project context clearly justifies them.
 
@@ -163,6 +164,9 @@ Required outcome for this cycle:
 - Update journal/incidents/handoffs through their helper APIs only when the cycle warrants it.
 - After consulting or creating a skill, record that consultation with:
   `python - <<'PY'\nfrom drl_autoresearch.core.agent_contract import record_skill_consultation\nrecord_skill_consultation('skills/<relevant-file>.md', 'why it was relevant')\nPY`
+- Update live progress during the cycle with:
+  `python - <<'PY'\nfrom drl_autoresearch.core.agent_contract import update_runtime_activity\nupdate_runtime_activity('building', 'implementing missing training loop')\nPY`
+  Use short activity labels like `reading_spec`, `building`, `training`, `evaluating`, `debugging`, `writing_plan`.
 - Do not edit `.drl_autoresearch/state.json` manually; the controller will sync state after this run.
 
 Important:

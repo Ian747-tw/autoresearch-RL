@@ -19,6 +19,7 @@ from typing import Any, Optional
 ENV_CONTRACT_PATH = "DRL_AUTORESEARCH_CONTRACT_PATH"
 ENV_RUN_ID = "DRL_AUTORESEARCH_RUN_ID"
 ENV_BACKEND = "DRL_AUTORESEARCH_AGENT_BACKEND"
+ENV_PROJECT_DIR = "DRL_AUTORESEARCH_PROJECT_DIR"
 
 
 def _now_iso() -> str:
@@ -92,6 +93,11 @@ def env_run_id() -> str:
     return os.environ.get(ENV_RUN_ID, "").strip()
 
 
+def env_project_dir() -> Optional[Path]:
+    raw = os.environ.get(ENV_PROJECT_DIR, "").strip()
+    return Path(raw) if raw else None
+
+
 def audit_event(event_type: str, payload: dict[str, Any]) -> None:
     path = env_contract_path()
     if path is None:
@@ -109,5 +115,38 @@ def record_skill_consultation(skill_path: str, note: str = "") -> None:
             "run_id": env_run_id(),
             "skill_path": skill_path,
             "note": note,
+        },
+    )
+
+
+def update_runtime_activity(activity: str, note: str = "") -> None:
+    """Update live loop activity in state.json for dashboard/CLI visibility."""
+    project_dir = env_project_dir()
+    if project_dir is None:
+        return
+    state_path = project_dir / ".drl_autoresearch" / "state.json"
+    if not state_path.exists():
+        return
+    try:
+        payload = json.loads(state_path.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            return
+        flags = payload.get("flags")
+        if not isinstance(flags, dict):
+            flags = {}
+            payload["flags"] = flags
+        flags["current_activity"] = str(activity).strip() or "agent_cycle_running"
+        if note.strip():
+            flags["current_activity_note"] = note.strip()
+        payload["last_updated"] = _now_iso()
+        _atomic_write_json(state_path, payload)
+    except Exception:
+        return
+    audit_event(
+        "runtime_activity",
+        {
+            "run_id": env_run_id(),
+            "activity": str(activity).strip(),
+            "note": note.strip(),
         },
     )

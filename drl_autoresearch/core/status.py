@@ -113,6 +113,12 @@ def run(project_dir: Path) -> int:
     # Last updated.
     print(f"  Last updated: {state.last_updated}")
 
+    current_activity = state.flags.get("current_activity")
+    if current_activity:
+        note = state.flags.get("current_activity_note")
+        suffix = f"  ({note})" if note else ""
+        print(f"  Activity    : {current_activity}{suffix}")
+
     # Flags.
     if state.flags:
         print(f"  Flags       : {json.dumps(state.flags)}")

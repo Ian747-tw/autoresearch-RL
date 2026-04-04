@@ -226,6 +226,7 @@ class MetricsCollector:
             "project_mode": flags.get("project_mode", "improve"),
             "loop_running": bool(flags.get("loop_running", False)),
             "current_activity": flags.get("current_activity"),
+            "current_activity_note": flags.get("current_activity_note"),
             "agent_backend": flags.get("agent_backend"),
             "active_run_id": flags.get("active_run_id"),
             "last_agent_exit_code": flags.get("last_agent_exit_code"),

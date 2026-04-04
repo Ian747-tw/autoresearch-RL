@@ -5,6 +5,7 @@ DashboardServer — stdlib-only HTTP server with SSE live updates.
 from __future__ import annotations
 
 import http.server
+import importlib.resources
 import json
 import socketserver
 import threading
@@ -77,10 +78,10 @@ class _DashboardHandler(http.server.BaseHTTPRequestHandler):
     # ------------------------------------------------------------------
 
     def _serve_index(self) -> None:
-        if not _INDEX_HTML.exists():
+        body = _load_index_html()
+        if body is None:
             self._send_error(500, "index.html not found")
             return
-        body = _INDEX_HTML.read_bytes()
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
@@ -220,6 +221,22 @@ class _DashboardHandler(http.server.BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+
+def _load_index_html() -> Optional[bytes]:
+    if _INDEX_HTML.exists():
+        return _INDEX_HTML.read_bytes()
+    try:
+        resource = (
+            importlib.resources.files("drl_autoresearch.dashboard")
+            .joinpath("static")
+            .joinpath("index.html")
+        )
+        if resource.is_file():
+            return resource.read_bytes()
+    except Exception:
+        pass
+    return None
 
 
 # ---------------------------------------------------------------------------

@@ -995,6 +995,7 @@ def run(
                     "DRL_AUTORESEARCH_RUN_ID": run_id,
                     "DRL_AUTORESEARCH_CONTRACT_PATH": str(contract_path),
                     "DRL_AUTORESEARCH_AGENT_BACKEND": backend,
+                    "DRL_AUTORESEARCH_PROJECT_DIR": str(project_dir),
                 },
                 dangerous=True,
             )
