@@ -725,7 +725,6 @@ class MetricsCollector:
             for r in timeline
             if r.get(metric) is not None
             and r.get("status") == "completed"
-            and r.get("keep_decision") == "keep"
         ]
         ranked = sorted(candidates, key=lambda r: r[metric], reverse=True)[:n]
 
@@ -833,9 +832,15 @@ class MetricsCollector:
         if elapsed_hours < 4.0:
             return None
 
-        kept = [r for r in timeline if r.get("keep_decision") == "keep"]
+        kept = [
+            r for r in timeline
+            if r.get("status") == "completed" and r.get("keep_decision") == "keep"
+        ]
         crashed = [r for r in timeline if r.get("status") == "crashed"]
-        discarded = [r for r in timeline if r.get("keep_decision") == "discard"]
+        discarded = [
+            r for r in timeline
+            if r.get("status") == "completed" and r.get("keep_decision") == "discard"
+        ]
 
         best_run: Optional[dict] = None
         best_val: Optional[float] = None
