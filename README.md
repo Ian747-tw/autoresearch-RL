@@ -123,8 +123,7 @@ This is in addition to normal training/registry status views.
 ```bash
 git clone https://github.com/Ian747-tw/autoresearch-RL
 cd autoresearch-RL
-uv tool update-shell
-uv tool install --force .
+pipx install --force .
 ```
 
 This installs `drl-autoresearch` once for your user account so it can be run
@@ -140,12 +139,28 @@ drl-autoresearch --help
 If `which drl-autoresearch` returns nothing after install, open a new shell once
 or run `source ~/.bashrc`.
 
-Alternative if you prefer `pipx`:
+Recommended verification that the installed command is using the expected package:
+
+```bash
+PIPX_PY="$(head -n 1 "$(which drl-autoresearch)" | sed 's/^#!//')"
+"$PIPX_PY" - <<'PY'
+import drl_autoresearch, drl_autoresearch.core.onboarding as ob
+print(drl_autoresearch.__file__)
+print(ob.__file__)
+PY
+```
+
+Use plain `python3 -c 'import drl_autoresearch'` only if you installed the
+package into that same Python environment. A cloned repo and an installed CLI
+are separate copies.
+
+Alternative if you prefer a repo-linked editable install instead of a global
+`pipx` app:
 
 ```bash
 git clone https://github.com/Ian747-tw/autoresearch-RL
 cd autoresearch-RL
-pipx install --force .
+python3 -m pip install --user -e .
 ```
 
 ### Update existing local clone (no re-download)
@@ -153,15 +168,15 @@ pipx install --force .
 ```bash
 cd ~/autoresearch-RL
 git pull --rebase origin master
-uv tool install --force .
+pipx install --force .
 ```
 
-If dependencies changed, run:
+If you use the editable install path instead of `pipx`, update with:
 
 ```bash
 cd ~/autoresearch-RL
 git pull --rebase origin master
-uv tool install --force .
+python3 -m pip install --user -e .
 ```
 
 ## End-to-End Workflow
