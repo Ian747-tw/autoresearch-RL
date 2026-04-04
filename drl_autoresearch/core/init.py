@@ -66,6 +66,9 @@ _POLICY_YAML = textwrap.dedent("""\
     checkpoints:
       keep_top_n: 5
       delete_on_discard: false
+
+    # Minimum completed runs between stuck-triggered refreshes.
+    refresh_cooldown_runs: 3
 """)
 
 _HARDWARE_YAML = textwrap.dedent("""\
@@ -273,6 +276,7 @@ def run(
         _write_if_missing(config_dir / "hardware.yaml",    _HARDWARE_YAML)
         _write_if_missing(config_dir / "python_env.yaml",  _PYTHON_ENV_YAML)
         _write_if_missing(config_dir / "permissions.yaml", _PERMISSIONS_YAML)
+        _sync_policy_config(config_dir, onboarding_result)
         _sync_permission_mode(config_dir, onboarding_result)
 
         # Hard rules file at project root.
@@ -394,6 +398,63 @@ def _sync_permission_mode(config_dir: Path, onboarding_result: object) -> None:
             data["mode"] = selected_mode
             json_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
             console(f"Updated {json_path.name} mode to {selected_mode}", "success")
+
+
+def _sync_policy_config(config_dir: Path, onboarding_result: object) -> None:
+    """Ensure runtime policy config carries onboarding-selected execution values."""
+    project = getattr(onboarding_result, "project", {}) or {}
+    selected_cooldown = _coerce_positive_int(
+        project.get("refresh_cooldown_runs"),
+        default=3,
+    )
+
+    yaml_path = config_dir / "policy.yaml"
+    if yaml_path.exists():
+        text = yaml_path.read_text(encoding="utf-8")
+        key_line = f"refresh_cooldown_runs: {selected_cooldown}"
+        if re.search(r"(?m)^refresh_cooldown_runs:\s*", text):
+            updated = re.sub(
+                r"(?m)^refresh_cooldown_runs:\s*.*$",
+                key_line,
+                text,
+                count=1,
+            )
+        else:
+            updated = text.rstrip("\n") + f"\n\n# Minimum completed runs between stuck-triggered refreshes.\n{key_line}\n"
+        if updated != text:
+            yaml_path.write_text(updated, encoding="utf-8")
+            console(
+                f"Updated {yaml_path.name} refresh cooldown to {selected_cooldown} run(s)",
+                "success",
+            )
+        return
+
+    json_path = config_dir / "policy.json"
+    if json_path.exists():
+        data = json.loads(json_path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            data = {}
+        if data.get("refresh_cooldown_runs") != selected_cooldown:
+            data["refresh_cooldown_runs"] = selected_cooldown
+            json_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+            console(
+                f"Updated {json_path.name} refresh cooldown to {selected_cooldown} run(s)",
+                "success",
+            )
+
+
+def _coerce_positive_int(value: object, default: int) -> int:
+    text = str(value or "").strip()
+    if not text:
+        return default
+    match = re.search(r"\d+", text)
+    if not match:
+        return default
+    try:
+        parsed = int(match.group(0))
+    except ValueError:
+        return default
+    return parsed if parsed > 0 else default
 
 
 def _refresh_project_managed_files(project_dir: Path) -> None:
@@ -567,7 +628,6 @@ def _generate_bundled_drl_skills(project_dir: Path, onboarding_result: object) -
         hard_rules = getattr(onboarding_result, "hard_rules", []) or []
         hardware = getattr(onboarding_result, "hardware", None)
         python_env = getattr(onboarding_result, "python_env", {}) or {}
-
         gen = ScaffoldGenerator(
             project_dir=project_dir,
             onboarding_result=ScaffoldOnboardingResult(
@@ -581,7 +641,6 @@ def _generate_bundled_drl_skills(project_dir: Path, onboarding_result: object) -
                 wall_clock_budget=str(project.get("wall_clock_goal_hours") or "auto"),
                 compute_budget=str(project.get("compute_budget") or "auto"),
                 other_information=project.get("other_information") or "",
-                reward_modification_allowed=permissions.get("policy") != "locked",
                 user_rules=[rule for rule in hard_rules if rule and rule != "none"],
                 hardware_summary=_format_hardware_summary(hardware),
                 python_env_summary=_format_python_env_summary(python_env),
@@ -641,8 +700,11 @@ def _build_skill_generator_context(project_dir: Path, onboarding_result: object)
         - Objective: {project.get("objective") or "unspecified"}
         - Success metric: {project.get("success_metric") or "unspecified"}
         - Other information: {project.get("other_information") or "none provided"}
+        - Stuck refresh cooldown: {project.get("refresh_cooldown_runs") or "3"} run(s)
         - Modification policy: {project.get("modifications_allowed") or "unspecified"}
+        - Imitation learning policy: {project.get("imitation_learning_allowed") or "unspecified"}
         - Permission policy: {permissions.get("policy") or "open"}
+        - Token philosophy: keep outputs compact and token-efficient; prefer targeted reads over loading full files.
 
         Hard rules:
         {rules_block}

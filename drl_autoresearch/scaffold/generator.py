@@ -484,6 +484,9 @@ hypothesis:
 checkpoints:
   keep_top_n: 5
   delete_on_discard: false
+
+# Minimum completed runs between stuck-triggered refreshes.
+refresh_cooldown_runs: 3
 """
 
 # ---------------------------------------------------------------------------
@@ -1323,6 +1326,11 @@ _USER_SPEC_MD_TEMPLATE = """\
 - Eval modification: {eval_modification_allowed}
 - Offline data: {offline_data_allowed}
 - Imitation learning: {imitation_allowed}
+
+## Token Philosophy
+- Keep outputs compact and token-efficient.
+- Prefer targeted reads and line pointers over loading whole files.
+- Treat compact artifacts as navigators; open original sources only when needed.
 
 ## Algorithm Starting Point
 Based on your environment, the recommended starting algorithms are:

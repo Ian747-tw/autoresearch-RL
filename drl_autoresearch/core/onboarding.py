@@ -641,24 +641,24 @@ class OnboardingFlow:
             self._log_assumption("project.env", None, "inferred", "low",
                                  "Tool will decide based on context.")
 
-        obs_type = _ask_choice(
-            "Observation type:",
-            ["continuous_vector", "image", "mixed", "other"],
+        obs_type = _ask(
+            "Observation type",
             default="continuous_vector",
             allow_skip=True,
             allow_decide=True,
+            allow_multiline=True,
         )
         if obs_type in (None, "__decide__"):
             self._log_assumption("project.obs_type", obs_type, "default", "medium",
                                  "Observation type not specified; will infer.")
             obs_type = obs_type
 
-        action_space = _ask_choice(
-            "Action space:",
-            ["continuous", "discrete", "multi-discrete", "other"],
+        action_space = _ask(
+            "Action space",
             default="discrete",
             allow_skip=True,
             allow_decide=True,
+            allow_multiline=True,
         )
         if action_space in (None, "__decide__"):
             self._log_assumption("project.action_space", action_space, "default",
@@ -687,12 +687,12 @@ class OnboardingFlow:
                                  "Success metric not provided; will use reward as proxy.")
             success_metric = None
 
-        modifications = _ask_choice(
-            "Modifications allowed?",
-            ["reward", "env", "eval", "all", "none"],
+        modifications = _ask(
+            "Allowed modification scope",
             default="all",
             allow_skip=True,
             allow_decide=True,
+            allow_multiline=True,
         )
         offline_data = _ask_choice(
             "Offline data allowed?",
@@ -701,11 +701,12 @@ class OnboardingFlow:
             allow_skip=True,
             allow_decide=True,
         )
-        imitation = _ask_choice(
-            "Imitation learning allowed?",
-            ["yes", "no"],
+        imitation = _ask(
+            "Imitation learning allowed",
             default="no",
             allow_skip=True,
+            allow_decide=True,
+            allow_multiline=True,
         )
         wall_clock = _ask(
             "Wall-clock goal (hours, e.g. '8' for overnight)",
@@ -719,6 +720,21 @@ class OnboardingFlow:
             allow_decide=True,
             allow_multiline=True,
         )
+        refresh_cooldown_runs = _ask(
+            "Stuck refresh cooldown (runs between refreshes)",
+            default="3",
+            allow_skip=True,
+            allow_decide=True,
+        )
+        if refresh_cooldown_runs in (None, "__decide__"):
+            refresh_cooldown_runs = "3"
+            self._log_assumption(
+                "project.refresh_cooldown_runs",
+                refresh_cooldown_runs,
+                "default",
+                "medium",
+                "Defaulting stuck refresh cooldown to 3 runs.",
+            )
         other_information = _ask(
             "Other information (project quirks, known issues, extra context)",
             allow_skip=True,
@@ -747,6 +763,7 @@ class OnboardingFlow:
             "imitation_learning_allowed": imitation,
             "wall_clock_goal_hours": wall_clock,
             "compute_budget": compute_budget,
+            "refresh_cooldown_runs": refresh_cooldown_runs,
             "other_information": other_information,
         }
 
@@ -765,6 +782,7 @@ class OnboardingFlow:
             "imitation_learning_allowed": "no",
             "wall_clock_goal_hours": None,
             "compute_budget": None,
+            "refresh_cooldown_runs": "3",
             "other_information": None,
         }
 
@@ -1081,6 +1099,7 @@ class OnboardingFlow:
                 "imitation_learning_allowed": "no",
                 "wall_clock_goal_hours": None,
                 "compute_budget": None,
+                "refresh_cooldown_runs": "3",
                 "other_information": None,
             },
             hardware=detected_hw,

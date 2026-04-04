@@ -60,7 +60,6 @@ _REGISTRY_COLUMNS = [
 _WORKFLOW_METADATA = ".drl_autoresearch/skill_pack.json"
 _BUILD_PLAN_DIR = "implementation_plan"
 _PLAN_FILE = ".drl_autoresearch/plan.json"
-_REFRESH_COOLDOWN_RUNS = 3
 _AGENT_LOOP_SLEEP_SECONDS = 2
 _RUNTIME_CONTRACTS_DIR = ".drl_autoresearch/runtime/contracts"
 
@@ -703,6 +702,39 @@ def _recent_stuck_signal(project_dir: Path, window: int = 6) -> tuple[bool, str]
     return False, ""
 
 
+def _load_policy_config(project_dir: Path) -> dict[str, Any]:
+    config_dir = project_dir / ".drl_autoresearch"
+    yaml_path = config_dir / "policy.yaml"
+    if yaml_path.exists():
+        try:
+            import yaml  # type: ignore
+
+            data = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
+            return data if isinstance(data, dict) else {}
+        except Exception:
+            pass
+
+    json_path = config_dir / "policy.json"
+    if json_path.exists():
+        try:
+            data = json.loads(json_path.read_text(encoding="utf-8"))
+            return data if isinstance(data, dict) else {}
+        except Exception:
+            pass
+
+    return {}
+
+
+def _refresh_cooldown_runs(project_dir: Path) -> int:
+    config = _load_policy_config(project_dir)
+    raw_value = config.get("refresh_cooldown_runs", 3)
+    try:
+        parsed = int(raw_value)
+    except (TypeError, ValueError):
+        return 3
+    return parsed if parsed > 0 else 3
+
+
 def _prepare_build_mode(
     project_dir: Path,
     state: ProjectState,
@@ -764,7 +796,8 @@ def _maybe_refresh_when_stuck(
         return
 
     last_refresh_runs = int(state.flags.get("last_refresh_total_runs", -10_000))
-    if (state.total_runs - last_refresh_runs) < _REFRESH_COOLDOWN_RUNS:
+    cooldown_runs = _refresh_cooldown_runs(project_dir)
+    if (state.total_runs - last_refresh_runs) < cooldown_runs:
         console(
             "Stuck signal detected but refresh cooldown is active; skipping refresh this run.",
             "info",

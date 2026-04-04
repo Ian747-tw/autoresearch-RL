@@ -175,6 +175,29 @@ class MetricsCollector:
         queue = state.get("queue", [])
         return queue[0] if queue else None
 
+    def _load_policy_config(self) -> dict:
+        yaml_path = self._config_dir / "policy.yaml"
+        if yaml_path.exists():
+            try:
+                import yaml  # type: ignore
+
+                data = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
+                if isinstance(data, dict):
+                    return data
+            except Exception:
+                pass
+
+        json_path = self._config_dir / "policy.json"
+        if json_path.exists():
+            try:
+                data = json.loads(json_path.read_text(encoding="utf-8"))
+                if isinstance(data, dict):
+                    return data
+            except Exception:
+                pass
+
+        return {}
+
     def _collect_workflow_state(self, state: dict) -> dict:
         flags = state.get("flags", {})
         if not isinstance(flags, dict):
@@ -186,7 +209,13 @@ class MetricsCollector:
         except (TypeError, ValueError):
             total_runs_i = 0
 
-        cooldown_window = 3
+        policy = self._load_policy_config()
+        try:
+            cooldown_window = int(policy.get("refresh_cooldown_runs", 3))
+        except (TypeError, ValueError):
+            cooldown_window = 3
+        if cooldown_window <= 0:
+            cooldown_window = 3
         last_refresh_total_runs = flags.get("last_refresh_total_runs")
         cooldown_remaining = 0
         if isinstance(last_refresh_total_runs, int):
@@ -205,6 +234,7 @@ class MetricsCollector:
             "build_bootstrap_research_applied": bool(
                 flags.get("build_bootstrap_research_applied", False)
             ),
+            "refresh_cooldown_runs": cooldown_window,
             "refresh_cooldown_remaining_runs": cooldown_remaining,
             "last_refresh_reason": flags.get("last_refresh_reason"),
         }
