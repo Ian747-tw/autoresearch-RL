@@ -139,11 +139,12 @@ def run(project_dir: Path) -> int:
         for row in recent:
             run_id      = row.get("run_id", "?")[:8]
             hypothesis  = row.get("hypothesis", "")[:40]
-            metric      = row.get("metric_value", "")
             status      = row.get("status", "")
+            keep        = row.get("keep_decision", "") or "discard"
             ts          = row.get("timestamp", "")[:19]
-            metric_str  = f"{float(metric):.4f}" if metric else "N/A"
-            print(f"    [{run_id}] {ts}  {status:<14} {metric_str}  {hypothesis}")
+            metric_raw  = row.get("eval_reward_mean", "")
+            metric_str  = f"{float(metric_raw):.4f}" if metric_raw not in ("", None) else "N/A"
+            print(f"    [{run_id}] {ts}  {status:<10} {keep:<7} {metric_str}  {hypothesis}")
     else:
         print("  No experiments recorded yet.")
 

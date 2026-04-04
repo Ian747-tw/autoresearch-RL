@@ -277,13 +277,15 @@ class Orchestrator:
         result dict expected keys:
           - metric_value: float
           - metric_name: str         (optional, defaults to state.best_metric_name)
-          - status: str              "success" | "crashed" | "discarded"
+          - status: str              "success" | "crashed" | "discard"
           - notes: str               (optional)
         """
         self._ensure_loaded()
         state = self._state  # type: ignore[assignment]
 
-        status = result.get("status", "success")
+        status = str(result.get("status", "success") or "success").strip().lower()
+        if status == "discarded":
+            status = "discard"
         metric_value = result.get("metric_value")
         metric_name = result.get("metric_name", state.best_metric_name)
 
@@ -291,7 +293,7 @@ class Orchestrator:
 
         if status == "crashed":
             state.crashed_runs += 1
-        elif status == "discarded":
+        elif status == "discard":
             state.discarded_runs += 1
         else:
             state.kept_runs += 1

@@ -149,7 +149,10 @@ class RunManager:
         # Deferred import to avoid circular dependencies at module load time
         from drl_autoresearch.logging.registry import RunRecord
 
-        ctx.status = result.get("status", "completed")
+        raw_status = str(result.get("status", "completed") or "completed").strip().lower()
+        if raw_status in {"discard", "discarded", "keep"}:
+            raw_status = "completed"
+        ctx.status = raw_status
 
         # ── Eval safeguards ──
         eval_reward = result.get("eval_reward_mean")
@@ -400,7 +403,10 @@ class RunManager:
 
         # 1. Update registry
         try:
-            registry.update_run(ctx.run_id, {"keep_decision": "keep", "notes": reason})
+            registry.update_run(
+                ctx.run_id,
+                {"status": "completed", "keep_decision": "keep", "notes": reason},
+            )
         except KeyError:
             pass  # run not yet in registry — non-fatal
 
@@ -433,14 +439,17 @@ class RunManager:
         2. Update registry with discard decision.
         3. Log to journal.
         """
-        ctx.status = "discarded"
+        ctx.status = "completed"
 
         # 1. Git revert
         self._git_revert_changes(ctx)
 
         # 2. Update registry
         try:
-            registry.update_run(ctx.run_id, {"keep_decision": "discard", "notes": reason})
+            registry.update_run(
+                ctx.run_id,
+                {"status": "completed", "keep_decision": "discard", "notes": reason},
+            )
         except KeyError:
             pass  # run not yet in registry — non-fatal
 
@@ -460,7 +469,7 @@ class RunManager:
     def _maybe_update_best_in_state(
         self, ctx: RunContext, registry: "ExperimentRegistry"
     ) -> None:
-        """Update state.json if this run's eval metric beats the current best."""
+        """Update state.json if this run's reward beats the current best."""
         run_record = None
         try:
             run_record = registry.get_run(ctx.run_id)
@@ -470,10 +479,8 @@ class RunManager:
         if run_record is None:
             return
 
-        eval_val = run_record.eval_reward_mean
-        if eval_val is None:
-            eval_val = run_record.custom_metric_value
-        if eval_val is None:
+        reward_val = run_record.eval_reward_mean
+        if reward_val is None:
             return
 
         state_path = self._config_dir / "state.json"
@@ -483,13 +490,10 @@ class RunManager:
         try:
             state = json.loads(state_path.read_text(encoding="utf-8"))
             current_best = state.get("best_metric_value")
-            if current_best is None or float(eval_val) > float(current_best):
+            if current_best is None or float(reward_val) > float(current_best):
                 state["best_run_id"] = ctx.run_id
-                state["best_metric_value"] = eval_val
-                if run_record.custom_metric_name:
-                    state["best_metric_name"] = run_record.custom_metric_name
-                elif run_record.eval_reward_mean is not None:
-                    state["best_metric_name"] = "eval_reward_mean"
+                state["best_metric_value"] = reward_val
+                state["best_metric_name"] = "reward"
                 # Atomic write
                 tmp = state_path.with_suffix(".json.tmp")
                 tmp.write_text(json.dumps(state, indent=2, ensure_ascii=False), encoding="utf-8")

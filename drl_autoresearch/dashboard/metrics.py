@@ -32,6 +32,8 @@ STATE_FILENAME = "state.json"
 INCIDENTS_FILENAME = "incidents.json"
 DECISIONS_FILENAME = "decisions.json"
 WORKERS_FILENAME = "workers.json"
+MORNING_SUMMARY_FILENAME = "morning_summary.json"
+DASHBOARD_SNAPSHOT_FILENAME = "dashboard_snapshot.json"
 
 
 def _now_iso() -> str:
@@ -139,7 +141,7 @@ class MetricsCollector:
         """Read all logs and aggregate into DashboardData."""
         state = self._load_state()
         timeline = self.collect_experiment_timeline()
-        derived = self._derive_frontier_state(timeline, state.get("best_metric_name", "reward"))
+        derived = self._derive_frontier_state(timeline, "reward")
         training_curves, eval_curves = self._split_curves(timeline)
 
         # Active run: most recent "running" entry from timeline
@@ -186,6 +188,52 @@ class MetricsCollector:
             workflow=self._collect_workflow_state(state),
         )
 
+    def reconcile_dashboard_backends(self) -> dict:
+        """
+        Rebuild durable dashboard-side backend files from the current registry/state.
+
+        This is intended for update/resume flows where old derived files may no
+        longer match the current keep/discard rules.
+        """
+        data = self.collect().to_dict()
+
+        decisions = self._derive_recent_decisions_from_timeline(
+            data.get("experiment_timeline", []),
+            limit=None,
+        )
+        (self._config_dir / DECISIONS_FILENAME).write_text(
+            json.dumps(decisions, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+
+        morning_summary = data.get("morning_summary")
+        (self._config_dir / MORNING_SUMMARY_FILENAME).write_text(
+            json.dumps(morning_summary if morning_summary is not None else {}, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+
+        snapshot = {
+            "generated_at": data.get("timestamp"),
+            "current_phase": data.get("current_phase"),
+            "best_run_id": data.get("best_run_id"),
+            "best_metric_name": data.get("best_metric_name", "reward"),
+            "best_metric_value": data.get("best_metric_value"),
+            "total_runs": data.get("total_runs", 0),
+            "kept_runs": data.get("kept_runs", 0),
+            "discarded_runs": data.get("discarded_runs", 0),
+            "crashed_runs": data.get("crashed_runs", 0),
+            "experiment_timeline": data.get("experiment_timeline", []),
+            "top_runs": data.get("top_runs", []),
+            "recent_decisions": decisions,
+            "morning_summary": morning_summary,
+            "workflow": data.get("workflow", {}),
+        }
+        (self._config_dir / DASHBOARD_SNAPSHOT_FILENAME).write_text(
+            json.dumps(snapshot, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+        return snapshot
+
     # ------------------------------------------------------------------
     # State helpers
     # ------------------------------------------------------------------
@@ -210,7 +258,7 @@ class MetricsCollector:
         crashed_runs = 0
         best_run_id: Optional[str] = None
         best_metric_value: Optional[float] = None
-        best_metric_name = metric_name or "reward"
+        best_metric_name = "reward"
 
         for row in timeline:
             status = str(row.get("status", "") or "")
@@ -225,15 +273,11 @@ class MetricsCollector:
 
             if status == "completed" and keep_decision == "keep":
                 metric_value = row.get("eval_reward_mean")
-                if metric_value is None:
-                    metric_value = row.get("custom_metric_value")
-                row_metric_name = row.get("custom_metric_name") or best_metric_name
                 if metric_value is not None and (
                     best_metric_value is None or float(metric_value) > best_metric_value
                 ):
                     best_metric_value = float(metric_value)
                     best_run_id = row.get("run_id")
-                    best_metric_name = str(row_metric_name or best_metric_name)
 
         return {
             "total_runs": total_runs,
@@ -681,6 +725,7 @@ class MetricsCollector:
             for r in timeline
             if r.get(metric) is not None
             and r.get("status") == "completed"
+            and r.get("keep_decision") == "keep"
         ]
         ranked = sorted(candidates, key=lambda r: r[metric], reverse=True)[:n]
 
@@ -719,10 +764,18 @@ class MetricsCollector:
 
         # Derive from timeline
         timeline = self.collect_experiment_timeline()
+        return self._derive_recent_decisions_from_timeline(timeline, limit=n)
+
+    def _derive_recent_decisions_from_timeline(
+        self,
+        timeline: list[dict],
+        limit: Optional[int] = 20,
+    ) -> list[dict]:
         decisions = []
         for entry in timeline:
-            kd = entry.get("keep_decision", "")
-            if kd in ("keep", "discard"):
+            status = str(entry.get("status", "") or "")
+            kd = str(entry.get("keep_decision", "") or "")
+            if status == "completed" and kd in ("keep", "discard"):
                 decisions.append(
                     {
                         "timestamp": entry.get("timestamp", ""),
@@ -732,7 +785,17 @@ class MetricsCollector:
                         "next_step": "",
                     }
                 )
-        return decisions[-n:]
+            elif status == "crashed":
+                decisions.append(
+                    {
+                        "timestamp": entry.get("timestamp", ""),
+                        "run_id": entry.get("run_id", ""),
+                        "decision": "crash",
+                        "reason": entry.get("notes", ""),
+                        "next_step": "",
+                    }
+                )
+        return decisions[-limit:] if limit is not None else decisions
 
     # ------------------------------------------------------------------
     # Overnight summary

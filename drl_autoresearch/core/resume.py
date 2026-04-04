@@ -104,12 +104,17 @@ def _print_session_checkpoint(project_dir: Path) -> None:
     incident_signal = _detect_last_incident_signal(project_dir) or "none"
     refresh_reason = flags.get("last_refresh_reason") or "none"
     intent = "continue orchestrator loop with compact context"
+    current_activity = flags.get("current_activity")
+    current_activity_note = flags.get("current_activity_note")
 
     print()
     print("=== Session Sync Checkpoint (compact) ===")
     print(f"phase/mode: {phase} / {mode}")
     print(f"best run + metric: {best_run} ({best_metric_name}={best_metric_val})")
     print(f"latest 3 outcomes: {outcomes_str}")
+    if current_activity:
+        suffix = f" ({current_activity_note})" if current_activity_note else ""
+        print(f"interrupted activity: {current_activity}{suffix}")
     print(f"open incidents/handoff constraints: {incident_signal}; last_refresh_reason={refresh_reason}")
     print(f"next experiment intent: {intent}")
 
@@ -130,12 +135,14 @@ def run(
     console("Resuming session with compact context sync.", "info")
 
     try:
+        from drl_autoresearch.dashboard.metrics import MetricsCollector
         from drl_autoresearch.core.run import _sync_state_from_registry
         from drl_autoresearch.core.state import ProjectState
 
         state = ProjectState.load(project_dir)
         _sync_state_from_registry(state, project_dir)
         state.save()
+        MetricsCollector(project_dir).reconcile_dashboard_backends()
     except Exception:
         pass
 

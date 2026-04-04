@@ -95,10 +95,21 @@ def build_agent_prompt(
 ) -> str:
     run_id = str(experiment.get("run_id", "agent-cycle"))
     hypothesis = str(experiment.get("hypothesis", "No hypothesis provided."))
-    metric_name = str(experiment.get("metric_name", state.get("best_metric_name", "reward")))
+    metric_name = "reward"
     params = experiment.get("params", {})
     flags = state.get("flags", {}) if isinstance(state.get("flags"), dict) else {}
     build_bootstrap_complete = bool(flags.get("build_bootstrap_complete", project_mode != "build"))
+    interrupted_activity = str(flags.get("current_activity", "") or "").strip()
+    interrupted_activity_note = str(flags.get("current_activity_note", "") or "").strip()
+    interrupted_block = ""
+    if interrupted_activity:
+        interrupted_block = (
+            "\nInterrupted prior-session activity:\n"
+            f"- current_activity: {interrupted_activity}\n"
+            f"- current_activity_note: {interrupted_activity_note or 'none'}\n"
+            "- Before starting a new direction, inspect whether this prior activity was left unfinished.\n"
+            "- Resume it if it is still the highest-signal next step; otherwise close it out explicitly in the journal/handoff/registry-facing notes as appropriate.\n"
+        )
 
     mode_line = (
         "Build mode is active. Prioritize making the project runnable, implementing "
@@ -133,8 +144,9 @@ Before acting:
 Execution mode:
 - Current project mode: {project_mode}
 - Current phase: {state.get("current_phase", "research")}
-- Best metric: {state.get("best_metric_name", "reward")}={state.get("best_metric_value")}
+- Best reward: {state.get("best_metric_value")}
 - {mode_line}
+{interrupted_block}
 
 Starting posture:
 - The platform provides backbone, rules, logs, compact context, and orchestration. You own the actual research/build direction.
@@ -144,6 +156,7 @@ Starting posture:
 - If GPU should be usable but is currently unresolved, fix that first before doing the main experiment loop work.
 - If useful skills are present, use them naturally. If a reusable skill is missing and would materially help future cycles, you may create it.
 - Avoid canned algorithm templates unless the project context clearly justifies them.
+- If `current_activity` from the last session indicates unfinished work, inspect that first before choosing a new direction.
 
 Assigned experiment candidate:
 - run_id: {run_id}

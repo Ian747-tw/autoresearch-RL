@@ -307,7 +307,7 @@ class ScaffoldGenerator:
             "current_branch": None,
             "best_run_id": None,
             "best_metric_value": None,
-            "best_metric_name": self.ob.success_metric or "reward",
+            "best_metric_name": "reward",
             "total_runs": 0,
             "kept_runs": 0,
             "discarded_runs": 0,
@@ -737,11 +737,12 @@ Follow this procedure for every experiment.  Do not skip steps.
 - Record variance/std if running multiple eval seeds.
 
 ### Step 5: Keep or discard
-- If eval metric improved vs. current best: mark `status=kept`,
-  update `best_run_id` in `state.json`.
-- If eval metric did not improve: mark `status=discarded`, revert
+- If eval reward improved vs. current best reward: mark
+  `status=completed, keep_decision=keep`, update `best_run_id` in `state.json`.
+- If eval reward did not improve: mark
+  `status=completed, keep_decision=discard`, revert
   all code changes to the best-known-good config.
-- If exploratory run: mark `status=exploratory` and document findings.
+- If the run crashed operationally: mark `status=crashed` and document findings.
 
 ### Step 6: Update plan
 - Update `IMPLEMENTATION_PLAN.md` with the outcome.
@@ -792,9 +793,10 @@ Every experiment must have exactly one row in
 | `timestamp` | ISO-8601 UTC |
 | `hypothesis` | One-sentence description |
 | `params_json` | JSON dict of changed parameters |
-| `metric_name` | `{success_metric}` |
+| `metric_name` | `reward` |
 | `metric_value` | Numeric result |
-| `status` | `kept` / `discarded` / `crashed` / `exploratory` |
+| `status` | `completed` / `crashed` |
+| `keep_decision` | `keep` / `discard` |
 | `notes` | Free text: anomalies, observations |
 
 Do NOT round metric values.  Record the raw number.
@@ -1001,7 +1003,8 @@ Improvement is **only** claimed when ALL of the following are true:
    measurements (i.e., signal > noise).
 3. The eval protocol (seed, episode count, eval function) is identical
    to all comparison runs.
-4. The result is logged in `experiment_registry.tsv` with status=kept.
+4. The result is logged in `experiment_registry.tsv` with
+   `status=completed, keep_decision=keep`.
 
 Single-episode results, train reward increases, and proxy metrics alone
 do NOT constitute evidence of improvement.
@@ -1019,7 +1022,7 @@ Before ending a session, write an entry to `logs/handoffs.md`:
 - <bullet point per experiment>
 
 ### Results
-- Run <id>: <metric>=<value>, status=<kept/discarded/crashed>
+- Run <id>: <metric>=<value>, status=<completed/crashed>, keep_decision=<keep/discard>
 
 ### Current best
 - Run ID: <id>
@@ -2171,7 +2174,7 @@ Implement and respect early stopping:
 - If reward has not improved in `convergence_patience` evaluations AND
   is clearly below baseline, the run is likely going to fail.
 - Stop early rather than running to completion.
-- Log as `status=discarded (early stop)` with reason.
+- Log as `status=completed, keep_decision=discard (early stop)` with reason.
 
 Signs that justify early stopping:
 - Entropy collapsed to near-zero in first 20% of training.

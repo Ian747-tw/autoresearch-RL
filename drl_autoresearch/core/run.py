@@ -103,20 +103,14 @@ def _read_registry_rows(project_dir: Path) -> list[dict[str, Any]]:
     registry = ExperimentRegistry(project_dir=project_dir)
     rows: list[dict[str, Any]] = []
     for record in registry.get_history():
-        metric_name = record.custom_metric_name or "reward"
-        metric_value: Optional[float]
-        if record.custom_metric_name:
-            metric_value = record.custom_metric_value
-        else:
-            metric_value = record.eval_reward_mean
         rows.append(
             {
                 "run_id": record.run_id,
                 "timestamp": record.timestamp,
                 "hypothesis": record.hypothesis,
                 "params_json": record.config_summary,
-                "metric_name": metric_name,
-                "metric_value": metric_value,
+                "metric_name": "reward",
+                "metric_value": record.eval_reward_mean,
                 "status": record.status,
                 "keep_decision": record.keep_decision,
                 "notes": record.notes,
@@ -136,27 +130,20 @@ def _classify_run_outcome(status: str, keep_decision: str = "") -> str:
 
 
 def _normalize_registry_keep_decisions(project_dir: Path) -> None:
-    """Rewrite keep/discard so only improving completed runs remain kept."""
+    """Rewrite keep/discard so only improving completed reward runs remain kept."""
     registry = ExperimentRegistry(project_dir=project_dir)
     runs = registry.get_history()
-    best_metric_name: Optional[str] = None
     best_metric_value: Optional[float] = None
 
     for run in runs:
-        metric_name = (run.custom_metric_name or "reward").strip() or "reward"
-        metric_value = (
-            run.custom_metric_value
-            if run.custom_metric_name
-            else run.eval_reward_mean
-        )
+        metric_value = run.eval_reward_mean
 
         desired_keep = "discard"
         if run.status == "completed" and metric_value is not None:
             if best_metric_value is None:
                 desired_keep = "keep"
-                best_metric_name = metric_name
                 best_metric_value = metric_value
-            elif metric_name == best_metric_name and metric_value > best_metric_value:
+            elif metric_value > best_metric_value:
                 desired_keep = "keep"
                 best_metric_value = metric_value
 
@@ -173,7 +160,7 @@ def _sync_state_from_registry(state: ProjectState, project_dir: Path) -> list[di
     state.discarded_runs = 0
 
     best_run_id: Optional[str] = None
-    best_metric_name = state.best_metric_name or "reward"
+    best_metric_name = "reward"
     best_metric_value: Optional[float] = None
 
     for row in rows:
@@ -186,7 +173,6 @@ def _sync_state_from_registry(state: ProjectState, project_dir: Path) -> list[di
         else:
             state.discarded_runs += 1
 
-        metric_name = str(row.get("metric_name", "") or best_metric_name).strip() or best_metric_name
         raw_value = row.get("metric_value")
         try:
             metric_value = float(raw_value) if raw_value not in ("", None) else None
@@ -195,7 +181,6 @@ def _sync_state_from_registry(state: ProjectState, project_dir: Path) -> list[di
         if outcome == "keep" and metric_value is not None:
             if best_metric_value is None or metric_value > best_metric_value:
                 best_metric_value = metric_value
-                best_metric_name = metric_name
                 best_run_id = str(row.get("run_id") or "")
 
     state.best_run_id = best_run_id
@@ -568,7 +553,7 @@ def _normalize_orchestrator_experiment(
         "run_id": exp.get("run_id", str(uuid.uuid4())),
         "hypothesis": exp.get("hypothesis", "orchestrator_generated"),
         "params": exp.get("params", {}),
-        "metric_name": exp.get("metric_name", state.best_metric_name or "reward"),
+        "metric_name": "reward",
         "skill": exp.get("skill"),
     }
 
@@ -631,7 +616,7 @@ def _write_compact_build_plan_folder(project_dir: Path, state: ProjectState) -> 
 
     env = project.get("env") or "unspecified"
     objective = project.get("objective") or "maximize task success metric"
-    success_metric = project.get("success_metric") or state.best_metric_name or "reward"
+    success_metric = "reward"
     other_information = project.get("other_information") or "none provided"
 
     files = {

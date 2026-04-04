@@ -19,7 +19,7 @@ Plan schema
       "rationale": "<why try this>",
       "params": {<hyperparameter overrides>},
       "priority": <1–5>,
-      "status": "pending|running|completed|discarded"
+      "status": "pending|running|completed|discard"
     },
     ...
   ],
@@ -141,7 +141,7 @@ def _display_plan(plan: Dict[str, Any]) -> None:
         return
 
     # Sort by priority descending, then by status (pending first).
-    _status_order = {"pending": 0, "running": 1, "completed": 2, "discarded": 3}
+    _status_order = {"pending": 0, "running": 1, "completed": 2, "discard": 3, "discarded": 3}
     hypotheses_sorted = sorted(
         hypotheses,
         key=lambda h: (-h.get("priority", 0), _status_order.get(h.get("status", "pending"), 99)),
@@ -149,6 +149,8 @@ def _display_plan(plan: Dict[str, Any]) -> None:
 
     for h in hypotheses_sorted:
         status   = h.get("status", "pending")
+        if status == "discarded":
+            status = "discard"
         priority = h.get("priority", 0)
         hid      = h.get("id", "?")[:8]
         title    = h.get("title", "")
@@ -159,7 +161,7 @@ def _display_plan(plan: Dict[str, Any]) -> None:
             "pending":   "[~]",
             "running":   "[>]",
             "completed": "[✓]",
-            "discarded": "[-]",
+            "discard":   "[-]",
         }.get(status, "[?]")
 
         print(f"  {status_icon} (P{priority}) [{hid}] {title}")
