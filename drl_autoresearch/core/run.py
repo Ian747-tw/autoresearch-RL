@@ -986,6 +986,9 @@ def run(
                 break
 
             run_id = str(experiment.get("run_id", str(uuid.uuid4())))
+            resume_override_message = str(
+                state.flags.pop("resume_override_message", "") or ""
+            ).strip()
             contract_path = _contract_path(project_dir, run_id)
             initialize_contract(
                 contract_path,
@@ -1016,6 +1019,7 @@ def run(
                 state=state.to_dict(),
                 experiment=experiment,
                 project_mode=project_mode,
+                resume_override_message=resume_override_message,
             )
             agent_result = run_agent_cycle(
                 project_dir=project_dir,

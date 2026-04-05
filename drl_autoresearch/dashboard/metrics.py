@@ -34,6 +34,7 @@ DECISIONS_FILENAME = "decisions.json"
 WORKERS_FILENAME = "workers.json"
 MORNING_SUMMARY_FILENAME = "morning_summary.json"
 DASHBOARD_SNAPSHOT_FILENAME = "dashboard_snapshot.json"
+DASHBOARD_CLEAR_MARKER_FILENAME = "dashboard_backend_cleared.json"
 
 
 def _now_iso() -> str:
@@ -133,12 +134,106 @@ class MetricsCollector:
             if not path.exists():
                 path.write_text(content, encoding="utf-8")
 
+    def _dashboard_clear_marker_path(self) -> Path:
+        return self._config_dir / DASHBOARD_CLEAR_MARKER_FILENAME
+
+    def _dashboard_is_cleared_offline(self) -> bool:
+        return self._dashboard_clear_marker_path().exists()
+
+    def _clear_dashboard_marker(self) -> None:
+        marker = self._dashboard_clear_marker_path()
+        if marker.exists():
+            marker.unlink()
+
+    def _blank_dashboard_data(self) -> DashboardData:
+        state = self._load_state()
+        return DashboardData(
+            timestamp=_now_iso(),
+            project_name=state.get("project_name", self.project_dir.name),
+            current_phase=state.get("current_phase", "research"),
+            active_run_id=None,
+            total_runs=0,
+            kept_runs=0,
+            discarded_runs=0,
+            crashed_runs=0,
+            best_run_id=None,
+            best_metric_value=None,
+            best_metric_name="reward",
+            experiment_timeline=[],
+            training_curves={},
+            eval_curves={},
+            resource_usage={},
+            workers=[],
+            incidents=[],
+            top_runs=[],
+            recent_decisions=[],
+            next_experiment=None,
+            morning_summary=None,
+            workflow={
+                "project_mode": "offline-cleared",
+                "loop_running": False,
+                "current_activity": None,
+                "current_activity_note": "dashboard backend cleared offline",
+                "runtime_compute_device": "unknown",
+                "gpu_resolution_status": "solving",
+                "gpu_resolution_note": None,
+                "agent_backend": None,
+                "active_run_id": None,
+                "last_agent_exit_code": None,
+                "build_bootstrap_started": False,
+                "build_bootstrap_complete": False,
+                "build_bootstrap_research_applied": False,
+                "refresh_cooldown_enabled": False,
+                "refresh_cooldown_runs": 0,
+                "refresh_cooldown_remaining_runs": 0,
+                "last_refresh_reason": "offline_backend_cleared",
+            },
+        )
+
+    def clear_offline_backend(self) -> None:
+        """Blank dashboard backend files without modifying project logs."""
+        blank = self._blank_dashboard_data().to_dict()
+        payloads = {
+            INCIDENTS_FILENAME: [],
+            DECISIONS_FILENAME: [],
+            WORKERS_FILENAME: [],
+            MORNING_SUMMARY_FILENAME: {},
+            DASHBOARD_SNAPSHOT_FILENAME: {
+                "generated_at": blank["timestamp"],
+                "current_phase": blank["current_phase"],
+                "best_run_id": None,
+                "best_metric_name": "reward",
+                "best_metric_value": None,
+                "total_runs": 0,
+                "kept_runs": 0,
+                "discarded_runs": 0,
+                "crashed_runs": 0,
+                "experiment_timeline": [],
+                "top_runs": [],
+                "recent_decisions": [],
+                "morning_summary": None,
+                "workflow": blank["workflow"],
+            },
+            DASHBOARD_CLEAR_MARKER_FILENAME: {
+                "cleared_at": blank["timestamp"],
+                "mode": "offline",
+                "logs_preserved": True,
+            },
+        }
+        for filename, payload in payloads.items():
+            (self._config_dir / filename).write_text(
+                json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
+                encoding="utf-8",
+            )
+
     # ------------------------------------------------------------------
     # Main entry point
     # ------------------------------------------------------------------
 
     def collect(self) -> DashboardData:
         """Read all logs and aggregate into DashboardData."""
+        if self._dashboard_is_cleared_offline():
+            return self._blank_dashboard_data()
         state = self._load_state()
         timeline = self.collect_experiment_timeline()
         derived = self._derive_frontier_state(timeline, "reward")
@@ -195,6 +290,7 @@ class MetricsCollector:
         This is intended for update/resume flows where old derived files may no
         longer match the current keep/discard rules.
         """
+        self._clear_dashboard_marker()
         data = self.collect().to_dict()
 
         decisions = self._derive_recent_decisions_from_timeline(

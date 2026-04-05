@@ -138,7 +138,11 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
 def _cmd_dashboard(args: argparse.Namespace) -> int:
     project_dir = Path(args.project_dir).resolve()
     mod = _dashboard_mod()
-    return mod.run(project_dir=project_dir, port=args.port)
+    return mod.run(
+        project_dir=project_dir,
+        port=args.port,
+        clear_offline=getattr(args, "clear_offline", False),
+    )
 
 
 def _cmd_run(args: argparse.Namespace) -> int:
@@ -180,6 +184,7 @@ def _cmd_resume(args: argparse.Namespace) -> int:
         dry_run=args.dry_run,
         no_run=args.no_run,
         agent_backend=getattr(args, "agent_backend", "auto"),
+        message=getattr(args, "message", "") or "",
     )
 
 
@@ -367,6 +372,11 @@ def _build_parser() -> argparse.ArgumentParser:
         metavar="PORT",
         help="TCP port for the dashboard server (default: 8765).",
     )
+    p_dashboard.add_argument(
+        "--clear-offline",
+        action="store_true",
+        help="Blank dashboard backend data without deleting logs, then exit.",
+    )
     p_dashboard.set_defaults(func=_cmd_dashboard)
 
     # -- run -----------------------------------------------------------------
@@ -512,6 +522,12 @@ def _build_parser() -> argparse.ArgumentParser:
         choices=["auto", "codex", "claude"],
         default="auto",
         help="Which coding-agent CLI to use when continuing after resume (default: auto).",
+    )
+    p_resume.add_argument(
+        "--message",
+        default="",
+        metavar="TEXT",
+        help="One-shot resume instruction: merges as additional guidance unless it conflicts, in which case it overrides stale next intent.",
     )
     p_resume.set_defaults(func=_cmd_resume)
 

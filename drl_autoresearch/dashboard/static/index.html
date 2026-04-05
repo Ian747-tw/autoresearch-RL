@@ -804,7 +804,20 @@ function updateEvalChart(data) {
 
 /* ─── Resource chart update ─── */
 function updateResourceChart(res) {
-  if (!res || !res.available) return;
+  if (!res || !res.available) {
+    resourceHistory.labels = [];
+    resourceHistory.cpu = [];
+    resourceHistory.ram = [];
+    resourceHistory.gpuUtil = [];
+    resourceHistory.vram = [];
+    resourceChart.data.labels = [];
+    resourceChart.data.datasets[0].data = [];
+    resourceChart.data.datasets[1].data = [];
+    resourceChart.data.datasets[2].data = [];
+    resourceChart.data.datasets[3].data = [];
+    resourceChart.update('none');
+    return;
+  }
 
   const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   resourceHistory.labels.push(now);

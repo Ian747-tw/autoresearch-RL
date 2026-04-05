@@ -144,12 +144,33 @@ def _consume_stop_brief(project_dir: Path) -> None:
         return
 
 
+def _store_resume_override(project_dir: Path, message: str) -> None:
+    message = str(message or "").strip()
+    if not message:
+        return
+    path = project_dir / ".drl_autoresearch" / "state.json"
+    state = _load_state(project_dir)
+    flags = state.get("flags", {})
+    if not isinstance(flags, dict):
+        flags = {}
+        state["flags"] = flags
+    flags["resume_override_message"] = message
+    state["last_updated"] = datetime.now(timezone.utc).isoformat()
+    try:
+        tmp = path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(state, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        tmp.replace(path)
+    except OSError:
+        return
+
+
 def run(
     project_dir: Path,
     parallel: int = 1,
     dry_run: bool = False,
     no_run: bool = False,
     agent_backend: str = "auto",
+    message: str = "",
 ) -> int:
     project_dir = Path(project_dir).resolve()
     config_dir = project_dir / ".drl_autoresearch"
@@ -157,7 +178,11 @@ def run(
         console("Project not initialised. Run `drl-autoresearch init` first.", "error")
         return 1
 
+    resume_message = str(message or "").strip()
     console("Resuming session with compact context sync.", "info")
+    if resume_message:
+        _store_resume_override(project_dir, resume_message)
+        console("Stored a one-shot resume override for the next agent cycle.", "info")
 
     try:
         from drl_autoresearch.dashboard.metrics import MetricsCollector

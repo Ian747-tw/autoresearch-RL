@@ -92,6 +92,7 @@ def build_agent_prompt(
     state: dict[str, Any],
     experiment: dict[str, Any],
     project_mode: str,
+    resume_override_message: str = "",
 ) -> str:
     run_id = str(experiment.get("run_id", "agent-cycle"))
     hypothesis = str(experiment.get("hypothesis", "No hypothesis provided."))
@@ -101,6 +102,7 @@ def build_agent_prompt(
     build_bootstrap_complete = bool(flags.get("build_bootstrap_complete", project_mode != "build"))
     interrupted_activity = str(flags.get("current_activity", "") or "").strip()
     interrupted_activity_note = str(flags.get("current_activity_note", "") or "").strip()
+    resume_override_message = str(resume_override_message or "").strip()
     interrupted_block = ""
     if interrupted_activity:
         interrupted_block = (
@@ -109,6 +111,15 @@ def build_agent_prompt(
             f"- current_activity_note: {interrupted_activity_note or 'none'}\n"
             "- Before starting a new direction, inspect whether this prior activity was left unfinished.\n"
             "- Resume it if it is still the highest-signal next step; otherwise close it out explicitly in the journal/handoff/registry-facing notes as appropriate.\n"
+        )
+    resume_override_block = ""
+    if resume_override_message:
+        resume_override_block = (
+            "\nResume override from user (highest priority for this cycle):\n"
+            f"- instruction: {resume_override_message}\n"
+            "- Treat this as the latest human instruction.\n"
+            "- If it adds hints, constraints, or clarifications that do not conflict with the prior queued intent, preserve the original intent and incorporate these hints.\n"
+            "- If it conflicts with stale queued hypotheses, prior-session `current_activity`, or any previously inferred next-task, follow this instruction and treat the older intent as superseded context.\n"
         )
 
     mode_line = (
@@ -146,6 +157,7 @@ Execution mode:
 - Current phase: {state.get("current_phase", "research")}
 - Best reward: {state.get("best_metric_value")}
 - {mode_line}
+{resume_override_block}
 {interrupted_block}
 
 Starting posture:
