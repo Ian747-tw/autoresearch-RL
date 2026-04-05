@@ -85,6 +85,7 @@ class _DashboardHandler(http.server.BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
+        self._send_no_cache_headers()
         self.end_headers()
         self.wfile.write(body)
 
@@ -104,6 +105,7 @@ class _DashboardHandler(http.server.BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
         self._send_cors_headers()
+        self._send_no_cache_headers()
         self.end_headers()
         self.wfile.write(body)
 
@@ -128,6 +130,7 @@ class _DashboardHandler(http.server.BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
         self._send_cors_headers()
+        self._send_no_cache_headers()
         self.end_headers()
         self.wfile.write(body)
 
@@ -150,6 +153,7 @@ class _DashboardHandler(http.server.BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
         self._send_cors_headers()
+        self._send_no_cache_headers()
         self.end_headers()
         self.wfile.write(body)
 
@@ -199,6 +203,11 @@ class _DashboardHandler(http.server.BaseHTTPRequestHandler):
 
     def _send_cors_headers(self) -> None:
         self.send_header("Access-Control-Allow-Origin", "*")
+
+    def _send_no_cache_headers(self) -> None:
+        self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+        self.send_header("Pragma", "no-cache")
+        self.send_header("Expires", "0")
 
     def _send_404(self) -> None:
         body = b"404 Not Found"
