@@ -151,6 +151,9 @@ Before acting:
 5. Read the latest project state from `.drl_autoresearch/state.json` and recent registry/journal tails.
 6. Inspect `skills/` and consult any relevant project skills before acting. Do not assume any specific skill filenames.
 7. At the very start of the cycle, verify whether this run should use GPU or CPU and record that decision before the main work.
+- These reads are mandatory. Do them before any substantive search, edit, build, training, or evaluation step.
+- Do not proceed with the main task if `NON_NEGOTIABLE_RULES.md` was not inspected first.
+- Do not skip `.drl_autoresearch/spec_compact.md` when it exists; use it as the compact entry point into the real project spec.
 
 Execution mode:
 - Current project mode: {project_mode}

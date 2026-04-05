@@ -167,7 +167,9 @@ python3 -m pip install --user -e .
 
 ```bash
 cd ~/autoresearch-RL
-git pull --rebase origin master
+git fetch origin
+git checkout master
+git pull --ff-only origin master
 pipx install --force .
 ```
 
@@ -175,7 +177,9 @@ If you use the editable install path instead of `pipx`, update with:
 
 ```bash
 cd ~/autoresearch-RL
-git pull --rebase origin master
+git fetch origin
+git checkout master
+git pull --ff-only origin master
 python3 -m pip install --user -e .
 ```
 
@@ -270,6 +274,15 @@ drl-autoresearch resume --project-dir .
 This performs compact sync (status + tail windows of registry/journal/handoffs/incidents)
 and then continues the run loop automatically.
 
+If you want to add fresh guidance during resume, pass a one-shot message:
+
+```bash
+drl-autoresearch resume --project-dir . --message "Keep the current plan, but prioritize fixing the data loader first."
+```
+
+The resume message is merged as additional guidance unless it conflicts with stale
+queued intent, in which case the new human instruction wins.
+
 ### Step 5: Open dashboard
 
 ```bash
@@ -277,6 +290,12 @@ drl-autoresearch dashboard --port 8765
 ```
 
 Open `http://localhost:8765`.
+
+If you want to blank dashboard backend data while preserving all logs:
+
+```bash
+drl-autoresearch dashboard --project-dir . --clear-offline
+```
 
 ## Plugin Artifacts Installed by Init
 
@@ -324,7 +343,7 @@ drl-autoresearch run [--project-dir DIR] [--parallel N] [--dry-run] [--once] [--
 ### Resume
 
 ```bash
-drl-autoresearch resume [--project-dir DIR] [--parallel N] [--dry-run] [--no-run]
+drl-autoresearch resume [--project-dir DIR] [--parallel N] [--dry-run] [--no-run] [--message TEXT]
 ```
 
 ### Other core commands
@@ -333,9 +352,9 @@ drl-autoresearch resume [--project-dir DIR] [--parallel N] [--dry-run] [--no-run
 drl-autoresearch status    [--project-dir DIR]
 drl-autoresearch plan      [--project-dir DIR] [--refresh]
 drl-autoresearch research  [--project-dir DIR]
-drl-autoresearch resume    [--project-dir DIR] [--parallel N] [--dry-run] [--no-run]
+drl-autoresearch resume    [--project-dir DIR] [--parallel N] [--dry-run] [--no-run] [--message TEXT]
 drl-autoresearch check     --action ACTION [--details JSON] [--project-dir DIR]
-drl-autoresearch dashboard [--project-dir DIR] [--port PORT]
+drl-autoresearch dashboard [--project-dir DIR] [--port PORT] [--clear-offline]
 ```
 
 ## Token-Efficiency and Stability Notes
