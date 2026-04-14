@@ -23,6 +23,7 @@ import sys
 import time
 import traceback
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -61,6 +62,11 @@ _PLAN_FILE = ".drl_autoresearch/plan.json"
 _REFRESH_COOLDOWN_RUNS = 3
 _AGENT_LOOP_SLEEP_SECONDS = 2
 _RUNTIME_CONTRACTS_DIR = ".drl_autoresearch/runtime/contracts"
+_CONSECUTIVE_CRASH_FORCE_STOP_THRESHOLD = 5
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 def _registry_path(project_dir: Path) -> Path:
@@ -187,6 +193,89 @@ def _sync_state_from_registry(state: ProjectState, project_dir: Path) -> list[di
     state.best_metric_name = best_metric_name
     state.best_metric_value = best_metric_value
     return rows
+
+
+def _count_consecutive_crashes(rows: list[dict[str, Any]]) -> int:
+    count = 0
+    for row in reversed(rows):
+        outcome = _classify_run_outcome(
+            str(row.get("status", "")),
+            str(row.get("keep_decision", "")),
+        )
+        if outcome != "crash":
+            break
+        count += 1
+    return count
+
+
+def _update_consecutive_crash_flags(
+    state: ProjectState,
+    rows: list[dict[str, Any]],
+) -> int:
+    count = _count_consecutive_crashes(rows)
+    state.flags["consecutive_crashes"] = count
+    state.flags["crash_force_stop_threshold"] = _CONSECUTIVE_CRASH_FORCE_STOP_THRESHOLD
+    return count
+
+
+def _maybe_force_stop_for_crash_loop(
+    project_dir: Path,
+    state: ProjectState,
+    rows: list[dict[str, Any]],
+    backend: str,
+    journal: ProjectJournal,
+) -> bool:
+    consecutive_crashes = _update_consecutive_crash_flags(state, rows)
+    if consecutive_crashes < _CONSECUTIVE_CRASH_FORCE_STOP_THRESHOLD:
+        return False
+
+    note = (
+        f"Force-stopped after {consecutive_crashes} consecutive crashed runs. "
+        "Possible token/auth failure; autonomous coding-agent execution is disabled "
+        "until a human intervenes."
+    )
+    already_triggered = bool(state.flags.get("crash_loop_force_stop_triggered", False))
+
+    state.flags["crash_loop_force_stop_triggered"] = True
+    state.flags["crash_loop_force_stop_at"] = state.flags.get("crash_loop_force_stop_at") or _now_iso()
+    state.flags["loop_running"] = False
+    state.flags["current_activity"] = "forced_stop_crash_loop"
+    state.flags["current_activity_note"] = note
+    state.flags["active_run_id"] = None
+    state.flags["stop_brief_pending"] = True
+    state.flags["stop_requested_at"] = state.flags.get("stop_requested_at") or _now_iso()
+    state.save()
+
+    if not already_triggered:
+        incident_log = IncidentLog(project_dir)
+        incident_log.initialize()
+        incident_id = incident_log.report(
+            incident_type="crash_loop",
+            run_id=str(rows[-1].get("run_id", "")) if rows else "",
+            description=(
+                "Autonomous loop force-stopped after repeated crashes to avoid wasting "
+                "tokens and repeating likely auth/token failures."
+            ),
+            evidence={
+                "backend": backend,
+                "consecutive_crashes": consecutive_crashes,
+                "threshold": _CONSECUTIVE_CRASH_FORCE_STOP_THRESHOLD,
+            },
+            severity="critical",
+        )
+        journal.log_event(
+            "forced_stop_crash_loop",
+            note,
+            metadata={
+                "backend": backend,
+                "incident_id": incident_id,
+                "consecutive_crashes": consecutive_crashes,
+                "threshold": _CONSECUTIVE_CRASH_FORCE_STOP_THRESHOLD,
+            },
+        )
+
+    console(note, "error")
+    return True
 
 
 def _set_loop_flags(
@@ -943,9 +1032,17 @@ def run(
         cycle_count = 0
         while not _shutdown_requested:
             state = ProjectState.load(project_dir)
-            _sync_state_from_registry(state, project_dir)
+            rows = _sync_state_from_registry(state, project_dir)
             state.flags["project_mode"] = _load_project_mode(project_dir, state)
             project_mode = state.flags["project_mode"]
+            if _maybe_force_stop_for_crash_loop(
+                project_dir=project_dir,
+                state=state,
+                rows=rows,
+                backend=backend,
+                journal=journal,
+            ):
+                break
 
             if project_mode == "build":
                 _prepare_build_mode(project_dir=project_dir, state=state, dry_run=dry_run)
@@ -1090,7 +1187,7 @@ def run(
                     )
 
             state = ProjectState.load(project_dir)
-            _sync_state_from_registry(state, project_dir)
+            rows = _sync_state_from_registry(state, project_dir)
 
             new_rows = post_rows[len(pre_rows):]
             for row in new_rows:
@@ -1114,6 +1211,14 @@ def run(
                 console(f"Phase advanced to: {state.current_phase}", "info")
 
             _finalize_build_mode_if_complete(project_dir=project_dir, state=state, results=new_rows)
+            if _maybe_force_stop_for_crash_loop(
+                project_dir=project_dir,
+                state=state,
+                rows=rows,
+                backend=backend,
+                journal=journal,
+            ):
+                break
             _set_loop_flags(
                 state,
                 running=True,

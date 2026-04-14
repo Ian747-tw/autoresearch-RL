@@ -56,6 +56,13 @@ def _phase_bar(phase: str) -> str:
     return f"[{filled}{empty}] {phase}"
 
 
+def _safe_int(value: object, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -98,6 +105,10 @@ def run(project_dir: Path) -> int:
     print(f"  Kept        : {state.kept_runs}")
     print(f"  Discarded   : {state.discarded_runs}")
     print(f"  Crashed     : {state.crashed_runs}")
+    consecutive_crashes = _safe_int(state.flags.get("consecutive_crashes", 0), 0)
+    if consecutive_crashes:
+        threshold = _safe_int(state.flags.get("crash_force_stop_threshold", 5), 5)
+        print(f"  Crash streak: {consecutive_crashes} / {threshold}")
 
     # Best model.
     if state.best_run_id:

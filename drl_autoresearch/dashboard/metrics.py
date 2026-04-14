@@ -41,6 +41,13 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _safe_int(value: Any, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
 # ---------------------------------------------------------------------------
 # DashboardData
 # ---------------------------------------------------------------------------
@@ -183,6 +190,10 @@ class MetricsCollector:
                 "build_bootstrap_started": False,
                 "build_bootstrap_complete": False,
                 "build_bootstrap_research_applied": False,
+                "consecutive_crashes": 0,
+                "crash_force_stop_threshold": 5,
+                "crash_loop_force_stop_triggered": False,
+                "crash_loop_force_stop_at": None,
                 "refresh_cooldown_enabled": False,
                 "refresh_cooldown_runs": 0,
                 "refresh_cooldown_remaining_runs": 0,
@@ -448,6 +459,15 @@ class MetricsCollector:
             "build_bootstrap_research_applied": bool(
                 flags.get("build_bootstrap_research_applied", False)
             ),
+            "consecutive_crashes": _safe_int(flags.get("consecutive_crashes", 0), 0),
+            "crash_force_stop_threshold": _safe_int(
+                flags.get("crash_force_stop_threshold", 5),
+                5,
+            ),
+            "crash_loop_force_stop_triggered": bool(
+                flags.get("crash_loop_force_stop_triggered", False)
+            ),
+            "crash_loop_force_stop_at": flags.get("crash_loop_force_stop_at"),
             "refresh_cooldown_enabled": cooldown_enabled,
             "refresh_cooldown_runs": cooldown_window,
             "refresh_cooldown_remaining_runs": cooldown_remaining,
