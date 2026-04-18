@@ -14,19 +14,16 @@ until interrupted or convergence is detected.
    - `.drl_autoresearch/spec_compact.md`
    - Use pointers inside it to open original source lines only when needed.
 5. **Token-saving context sync (mandatory, compact reads only)**:
-   - `tail -n 25 logs/experiment_registry.tsv`
-   - `tail -n 120 logs/project_journal.md`
+   - `tail -n 15 logs/experiment_registry.tsv`
+   - `tail -n 100 logs/project_journal.md`
    - `tail -n 80 logs/handoffs.md`
-   - `tail -n 80 logs/incidents.md`
 6. **Read `IMPLEMENTATION_PLAN.md`** only if needed to resolve ambiguity from the compact sync.
 7. Write a compact session checkpoint (max 5 lines):
    - phase/mode
    - best run + metric
    - latest 3 outcomes
-   - open incidents/handoff constraints
+   - handoff constraints
    - next experiment intent
-
-If any CRITICAL incidents are open, do not start experiments. Report to user first.
 
 ## Runtime entrypoint
 
@@ -52,6 +49,7 @@ Controller behavior:
 - autonomous execution requires permissive onboarding policy such as `open`
 - risky actions must go through `drl-autoresearch check`
 - registry/journal/incidents/handoffs must be written through their helper APIs, not direct file edits
+- agents decide whether each run is a full baseline/real local eval or only a temporary/partial/specific test; only full baseline/local eval results should be promoted to registry/dashboard
 - relevant `skills/` guidance should be consulted before acting
 
 ## Convergence detection

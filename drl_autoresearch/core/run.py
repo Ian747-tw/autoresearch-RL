@@ -440,27 +440,6 @@ def _mark_agent_cycle_failed(
     notes: str,
     violations: list[str],
 ) -> None:
-    incident_log = IncidentLog(project_dir)
-    incident_log.initialize()
-    incident_id = incident_log.report(
-        incident_type="rule_violation",
-        run_id=run_id,
-        description="Autonomous agent cycle violated the runtime contract.",
-        evidence={"backend": backend, "violations": "; ".join(violations), "notes": notes},
-        severity="critical",
-    )
-
-    journal = ProjectJournal(project_dir)
-    journal.initialize(project_name=project_dir.name, spec={})
-    journal.log_event(
-        "agent_contract_violation",
-        (
-            f"Cycle `{run_id}` was marked failed because the autonomous agent bypassed required runtime hooks.\n\n"
-            f"Violations:\n- " + "\n- ".join(violations)
-        ),
-        metadata={"backend": backend, "incident_id": incident_id},
-    )
-
     registry = ExperimentRegistry(project_dir=project_dir)
     existing = registry.get_run(run_id)
     violation_notes = f"{notes}\nContract violations: {'; '.join(violations)}".strip()

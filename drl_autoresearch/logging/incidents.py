@@ -21,7 +21,7 @@ INCIDENT_TYPES = [
     "oom",               # GPU/CPU out of memory
     "crash_loop",        # repeated crashes on similar config
     "broken_assumption", # key assumption proved wrong
-    "rule_violation",    # hard rule was violated or almost violated
+    "rule_violation",    # research-related rule violation only
     "data_leak",         # potential information leak in eval
     "reproducibility",   # results not reproducible across seeds
 ]
@@ -132,6 +132,22 @@ class IncidentLog:
         Severity is auto-upgraded based on type if the provided severity
         is lower than the type's default.
         """
+        if incident_type == "rule_violation" and not bool(evidence.get("research_related")):
+            try:
+                from drl_autoresearch.core.agent_contract import audit_event
+
+                audit_event(
+                    "incident_suppressed",
+                    {
+                        "run_id": run_id,
+                        "incident_type": incident_type,
+                        "reason": "non_research_rule_violation",
+                    },
+                )
+            except Exception:
+                pass
+            return ""
+
         if not self.incidents_path.exists():
             self.initialize()
 

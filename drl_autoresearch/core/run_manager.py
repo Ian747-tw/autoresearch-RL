@@ -50,6 +50,19 @@ def _make_checkpoint_id() -> str:
     return f"chkpt_{ts}_{suffix}"
 
 
+def _first_present(source: dict, *keys: str) -> object:
+    for key in keys:
+        if key in source:
+            return source[key]
+    return None
+
+
+def _truthy(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
 # ---------------------------------------------------------------------------
 # RunContext
 # ---------------------------------------------------------------------------
@@ -236,6 +249,37 @@ class RunManager:
         )
 
         return run
+
+    def should_publish_to_registry(
+        self,
+        ctx: RunContext,
+        result: Optional[dict] = None,
+    ) -> bool:
+        """
+        Return whether this run should be promoted from raw logs into the
+        experiment registry/dashboard.
+
+        Raw per-run logs are always written. Agents decide whether a run is a
+        full baseline/local eval or only a temporary, partial, or specific test
+        by setting `publish_to_registry`/`registry_publish`/`promote_to_registry`
+        on the result or experiment metadata.
+
+        If no explicit decision is present, keep the old behavior and publish so
+        existing controller fallback/crash accounting continues to work.
+        """
+        result = result or {}
+
+        for source in (result, ctx.experiment):
+            explicit = _first_present(
+                source,
+                "publish_to_registry",
+                "registry_publish",
+                "promote_to_registry",
+            )
+            if explicit is not None:
+                return _truthy(explicit)
+
+        return True
 
     def _report_safeguard_incident(
         self, ctx: RunContext, incident_type: str, description: str, evidence: dict

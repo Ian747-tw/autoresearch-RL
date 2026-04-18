@@ -5,9 +5,10 @@ test_train.py — CartPole REINFORCE training harness for dashboard visualizatio
 Implements CartPole-v1 dynamics from scratch (zero external dependencies beyond
 PyTorch, which is already required by the project).  Runs 3 experiments with
 different hyperparameters and writes all data in the format the DRL AutoResearch
-dashboard expects:
+dashboard expects. The caller decides whether a run is a full baseline/local
+eval that should be promoted to registry/dashboard, or a raw-log-only test:
 
-  • logs/experiment_registry.tsv  — ExperimentRegistry (26-column) format
+  • logs/experiment_registry.tsv  — ExperimentRegistry (26-column) format, when promoted
   • logs/artifacts/<run_id>/metrics.json  — full training / eval curves
   • logs/runs/<run_id>/metrics.jsonl      — per-step metric stream
   • .drl_autoresearch/state.json          — updated best metric + phase
@@ -15,6 +16,7 @@ dashboard expects:
 Usage:
     uv run python test_train.py
     uv run python test_train.py --updates 30   # faster, fewer updates
+    uv run python test_train.py --no-registry   # raw logs only
 """
 from __future__ import annotations
 
@@ -31,7 +33,7 @@ import torch.optim as optim
 
 from drl_autoresearch.core.run_manager import RunManager
 from drl_autoresearch.core.state import ProjectState
-from drl_autoresearch.logging.registry import ExperimentRegistry, RunRecord
+from drl_autoresearch.logging.registry import ExperimentRegistry
 
 PROJECT_DIR = Path(__file__).parent
 
@@ -178,7 +180,14 @@ def run_experiment(
     registry: ExperimentRegistry,
     state: ProjectState,
     total_updates: int = 50,
+    publish_to_registry: bool = True,
+    registry_decision_reason: str = "agent marked this as a full local eval/baseline result",
 ) -> None:
+    experiment = {
+        **experiment,
+        "publish_to_registry": publish_to_registry,
+        "registry_decision_reason": registry_decision_reason,
+    }
     params = experiment["params"]
     lr = params["learning_rate"]
     hidden = params.get("hidden_size", 64)
@@ -266,6 +275,8 @@ def run_experiment(
         "agent": "test_train.py",
         "branch": "master",
         "status": "completed",
+        "publish_to_registry": publish_to_registry,
+        "registry_decision_reason": registry_decision_reason,
         "notes": f"best_eval={best_eval:.1f}",
     }
 
@@ -279,7 +290,12 @@ def run_experiment(
         run_record.keep_decision = "discard"
         decision_label = "discard"
 
-    registry.add_run(run_record)
+    publish_to_registry = run_manager.should_publish_to_registry(ctx, result)
+    if publish_to_registry:
+        registry.add_run(run_record)
+    else:
+        print(f"  [raw-log-only] {ctx.run_id}; registry/dashboard skipped: {registry_decision_reason}")
+        return
 
     # Update state
     state.total_runs += 1
@@ -342,6 +358,16 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Test training harness for DRL AutoResearch dashboard.")
     parser.add_argument("--updates", type=int, default=50, help="Gradient updates per experiment (default: 50)")
     parser.add_argument("--project-dir", default=".", metavar="DIR")
+    parser.add_argument(
+        "--no-registry",
+        action="store_true",
+        help="Keep results in raw logs only; do not publish to registry/dashboard.",
+    )
+    parser.add_argument(
+        "--registry-reason",
+        default="agent marked this as a full local eval/baseline result",
+        help="Short agent decision reason for publishing or skipping registry/dashboard.",
+    )
     args = parser.parse_args()
 
     project_dir = Path(args.project_dir).resolve()
@@ -352,6 +378,7 @@ def main() -> None:
     print(f"  Project : {project_dir}")
     print(f"  Updates : {total_updates} per experiment")
     print(f"  Runs    : {len(EXPERIMENTS)}")
+    print(f"  Registry: {'skip' if args.no_registry else 'publish'}")
     print("=" * 60)
 
     run_manager = RunManager(project_dir=project_dir)
@@ -368,6 +395,8 @@ def main() -> None:
             registry=registry,
             state=state,
             total_updates=total_updates,
+            publish_to_registry=not args.no_registry,
+            registry_decision_reason=args.registry_reason,
         )
 
     print(f"\n{'=' * 60}")

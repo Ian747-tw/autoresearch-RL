@@ -271,8 +271,13 @@ If your agent session drops or you start a new session, use one-line resume:
 drl-autoresearch resume --project-dir .
 ```
 
-This performs compact sync (status + tail windows of registry/journal/handoffs/incidents)
+This performs compact sync (status + tail windows of registry/journal/handoffs)
 and then continues the run loop automatically.
+
+Agents decide whether each run is a full baseline/real local eval or only a
+temporary, partial, or specific test. Only full baseline/local eval results
+should be promoted to registry/dashboard; the rest should keep raw outputs in
+`logs/runs/<run_id>/` without adding registry/dashboard entries.
 
 If you want to add fresh guidance during resume, pass a one-shot message:
 

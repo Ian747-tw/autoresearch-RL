@@ -515,11 +515,16 @@ class MetricsCollector:
         """
         training_curves: dict = {}
         eval_curves: dict = {}
+        timeline_run_ids = {
+            str(entry.get("run_id", "")).strip()
+            for entry in timeline
+            if str(entry.get("run_id", "")).strip()
+        }
 
         # Prefer full artifact curves when they exist
         for artifact in self.collect_training_curves():
             run_id = artifact.get("run_id", "")
-            if not run_id:
+            if not run_id or run_id not in timeline_run_ids:
                 continue
             training_curves[run_id] = {
                 "steps": artifact.get("steps", []),

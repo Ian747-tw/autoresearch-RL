@@ -487,7 +487,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Recover a dropped session with compact sync, then continue run loop.",
         description=(
             "Run a token-saving session sync for interrupted/new sessions: "
-            "print status, tail key logs (registry/journal/handoffs/incidents), "
+            "print status, tail key logs (registry/journal/handoffs), "
             "emit a compact checkpoint, then continue autonomous run by default."
         ),
     )

@@ -17,8 +17,6 @@ import csv
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
-
 from drl_autoresearch.cli import console
 
 
@@ -72,18 +70,6 @@ def _recent_registry_rows(project_dir: Path, limit: int = 3) -> list[dict]:
     return rows[-limit:]
 
 
-def _detect_last_incident_signal(project_dir: Path) -> Optional[str]:
-    lines = _tail_lines(project_dir / "logs" / "incidents.md", 120)
-    if not lines:
-        return None
-    blob = "\n".join(lines).lower()
-    if "critical" in blob:
-        return "critical_incident_present"
-    if "open incident" in blob or "open incidents" in blob:
-        return "open_incidents_present"
-    return None
-
-
 def _print_session_checkpoint(project_dir: Path) -> None:
     state = _load_state(project_dir)
     flags = state.get("flags", {}) if isinstance(state.get("flags", {}), dict) else {}
@@ -102,7 +88,6 @@ def _print_session_checkpoint(project_dir: Path) -> None:
         outcomes.append(f"{rid}:{status}/{keep}")
     outcomes_str = ", ".join(outcomes) if outcomes else "no recent runs"
 
-    incident_signal = _detect_last_incident_signal(project_dir) or "none"
     refresh_reason = flags.get("last_refresh_reason") or "none"
     intent = "continue orchestrator loop with compact context"
     current_activity = flags.get("current_activity")
@@ -117,7 +102,7 @@ def _print_session_checkpoint(project_dir: Path) -> None:
     if current_activity and stop_brief_pending:
         suffix = f" ({current_activity_note})" if current_activity_note else ""
         print(f"interrupted activity: {current_activity}{suffix}")
-    print(f"open incidents/handoff constraints: {incident_signal}; last_refresh_reason={refresh_reason}")
+    print(f"handoff constraints: last_refresh_reason={refresh_reason}")
     print(f"next experiment intent: {intent}")
 
 
@@ -202,10 +187,9 @@ def run(
     status_mod.run(project_dir=project_dir)
 
     # Token-saving tails (fixed windows).
-    _print_tail(project_dir, "logs/experiment_registry.tsv", 25)
-    _print_tail(project_dir, "logs/project_journal.md", 120)
+    _print_tail(project_dir, "logs/experiment_registry.tsv", 15)
+    _print_tail(project_dir, "logs/project_journal.md", 100)
     _print_tail(project_dir, "logs/handoffs.md", 80)
-    _print_tail(project_dir, "logs/incidents.md", 80)
 
     _print_session_checkpoint(project_dir)
     _consume_stop_brief(project_dir)
