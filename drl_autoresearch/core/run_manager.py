@@ -259,27 +259,55 @@ class RunManager:
         Return whether this run should be promoted from raw logs into the
         experiment registry/dashboard.
 
-        Raw per-run logs are always written. Agents decide whether a run is a
-        full baseline/local eval or only a temporary, partial, or specific test
-        by setting `publish_to_registry`/`registry_publish`/`promote_to_registry`
-        on the result or experiment metadata.
+        Only the following may be published:
+        - Standard baseline/local eval completed runs (full eval scope)
+        - Runs with crash_loop_force_stop_triggered=True (force-stopped crash loops)
 
-        If no explicit decision is present, keep the old behavior and publish so
-        existing controller fallback/crash accounting continues to work.
+        Never publish:
+        - Runs with status="running" (incomplete/interrupted)
+        - Specialized scope experiments, probe results, or any cut-off runs
+          unless explicitly opted in via publish_to_registry=True
+
+        Agents control publishing via `publish_to_registry`/`registry_publish`/
+        `promote_to_registry` on the result or experiment metadata.
         """
         result = result or {}
 
-        for source in (result, ctx.experiment):
-            explicit = _first_present(
-                source,
-                "publish_to_registry",
-                "registry_publish",
-                "promote_to_registry",
-            )
-            if explicit is not None:
-                return _truthy(explicit)
+        # Helper to get explicit publish flag from a dict
+        def get_explicit(d: dict) -> Optional[bool]:
+            val = _first_present(d, "publish_to_registry", "registry_publish", "promote_to_registry")
+            if val is None:
+                return None
+            return _truthy(val)
 
-        return True
+        # Check explicit publish flag in result first, then experiment
+        explicit = get_explicit(result)
+        if explicit is None:
+            explicit = get_explicit(ctx.experiment)
+
+        # Explicit False always blocks publishing
+        if explicit is False:
+            return False
+
+        # Never publish runs that are still running
+        raw_status = str(result.get("status") or ctx.status or "").strip().lower()
+        if raw_status == "running":
+            return False
+
+        # Crash-loop force-stop scenario: allow publishing even if not a full eval
+        # so crash accounting in dashboard/registry remains accurate
+        crash_stop = result.get("crash_loop_force_stop_triggered")
+        if not _truthy(crash_stop):
+            crash_stop = ctx.experiment.get("crash_loop_force_stop_triggered")
+        if _truthy(crash_stop):
+            return True
+
+        # If explicit True was set, publish it
+        if explicit is True:
+            return True
+
+        # Default: do not publish incomplete/unknown runs
+        return False
 
     def _report_safeguard_incident(
         self, ctx: RunContext, incident_type: str, description: str, evidence: dict

@@ -187,7 +187,7 @@ def run(
     status_mod.run(project_dir=project_dir)
 
     # Token-saving tails (fixed windows).
-    _print_tail(project_dir, "logs/experiment_registry.tsv", 15)
+    _print_tail(project_dir, "logs/experiment_registry.tsv", 25)
     _print_tail(project_dir, "logs/project_journal.md", 100)
     _print_tail(project_dir, "logs/handoffs.md", 80)
 

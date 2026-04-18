@@ -44,7 +44,7 @@ only. Do NOT read full logs unless the compact sync is insufficient.
 
 ```bash
 # 1) latest run records only
-tail -n 15 logs/experiment_registry.tsv
+tail -n 25 logs/experiment_registry.tsv
 
 # 2) latest journal events only
 tail -n 100 logs/project_journal.md

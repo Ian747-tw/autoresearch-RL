@@ -14,7 +14,7 @@ until interrupted or convergence is detected.
    - `.drl_autoresearch/spec_compact.md`
    - Use pointers inside it to open original source lines only when needed.
 5. **Token-saving context sync (mandatory, compact reads only)**:
-   - `tail -n 15 logs/experiment_registry.tsv`
+   - `tail -n 25 logs/experiment_registry.tsv`
    - `tail -n 100 logs/project_journal.md`
    - `tail -n 80 logs/handoffs.md`
 6. **Read `IMPLEMENTATION_PLAN.md`** only if needed to resolve ambiguity from the compact sync.
